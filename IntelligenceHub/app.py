@@ -9,30 +9,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for "Dark Mode Command Center" vibe
-st.markdown("""
-<style>
-    .stApp {
-        background-color: #0e1117;
-    }
-    section[data-testid="stSidebar"] {
-        background-color: #161b22;
-        border-right: 1px solid #30363d;
-    }
-    h1, h2, h3 {
-        color: #e6edf3 !important;
-    }
-    .stButton>button {
-        background-color: #238636;
-        color: white;
-        border: none;
-        width: 100%;
-    }
-    .stButton>button:hover {
-        background-color: #2ea043;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Preserve Streamlit's default theme (no forced CSS overrides)
 
 # Sidebar Navigation
 st.sidebar.title("🛡️ Intel Hub")
