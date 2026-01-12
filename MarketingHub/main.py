@@ -44,9 +44,9 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 def main():
-    # Set Default API Key
+    # Set Default API Key - use session_state (no hardcoded keys)
     if 'api_key' not in st.session_state:
-        st.session_state['api_key'] = "AIzaSyAF1pSbeOWw54HXdFaxHg0Oa3QsqlZitkI"
+        st.session_state['api_key'] = ""
 
     # Sidebar
     st.sidebar.title("🚀 Marketing Hub")

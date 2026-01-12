@@ -48,7 +48,7 @@ def classify_text(text, api_key, prompt_template):
     
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel('models/gemma-3-27b-it')
         # Use the custom prompt template
         response = model.generate_content(f"{prompt_template}\n\nText: {text}")
         return response.text.strip()

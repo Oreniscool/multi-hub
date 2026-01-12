@@ -29,7 +29,14 @@ st.markdown("""
 # Sidebar
 with st.sidebar:
     st.title("⚙️ Configuration")
-    api_key = st.text_input("Google Gemini API Key", value="AIzaSyAF1pSbeOWw54HXdFaxHg0Oa3QsqlZitkI", type="password")
+    
+    # Use session_state for API key (no hardcoded keys)
+    if 'api_key' not in st.session_state:
+        st.session_state['api_key'] = ""
+    
+    api_key = st.text_input("Google Gemini API Key", value=st.session_state['api_key'], type="password")
+    if api_key:
+        st.session_state['api_key'] = api_key
     
     st.divider()
     
@@ -52,12 +59,13 @@ with st.sidebar:
         if st.button("Load Demo Data"):
             st.session_state.data = load_data("demo")
             st.session_state.data_loaded = True
+            st.rerun()
 
 # Main Content
 st.title("🏷️ Classification Hub")
 st.markdown("Categorize your text datasets using **Google Gemini**.")
 
-if uploaded_file:
+if uploaded_file and upload_option == "Upload CSV":
     st.session_state.data = load_data(uploaded_file)
     st.session_state.data_loaded = True
 

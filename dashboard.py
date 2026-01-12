@@ -10,6 +10,10 @@ st.set_page_config(
     layout="wide"
 )
 
+# Initialize API key in session state (like MarketingHub pattern - no hardcoded keys)
+if 'api_key' not in st.session_state:
+    st.session_state['api_key'] = ""
+
 # Custom CSS
 st.markdown("""
 <style>
@@ -21,6 +25,19 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# Sidebar - Global API Key
+with st.sidebar:
+    st.header("🔑 Global Settings")
+    api_key = st.text_input(
+        "Gemini API Key",
+        type="password",
+        value=st.session_state['api_key'],
+        help="Enter your API key once here. It will be shared with all hubs."
+    )
+    if api_key:
+        st.session_state['api_key'] = api_key
+    st.markdown("---")
 
 # Title
 st.markdown('<div class="main-title">🚀 MultiHub - Integrated Dashboard</div>', unsafe_allow_html=True)
@@ -45,8 +62,9 @@ if 'hub_paths' not in st.session_state:
 # Helper function to run hub code
 def run_hub_code(file_path):
     """Read and execute hub code with proper encoding"""
-    # Get absolute path
-    abs_path = Path(file_path).resolve()
+    # Get absolute path from workspace root
+    workspace_root = Path(__file__).parent.resolve()
+    abs_path = (workspace_root / file_path).resolve()
     
     # Clean up previous hub paths from sys.path
     for old_path in st.session_state.hub_paths:
@@ -59,7 +77,10 @@ def run_hub_code(file_path):
                         'market_intelligence', 'news_scraper', 'swot_generator', 'ai_handler', 'data_handler']
     for mod_name in list(sys.modules.keys()):
         if any(mod_name == m or mod_name.startswith(m + '.') for m in modules_to_clear):
-            del sys.modules[mod_name]
+            try:
+                del sys.modules[mod_name]
+            except KeyError:
+                pass
     
     try:
         with open(abs_path, 'r', encoding='utf-8') as f:
@@ -72,13 +93,6 @@ def run_hub_code(file_path):
     import re
     # Match st.set_page_config(...) including multi-line
     code = re.sub(r'st\.set_page_config\([^)]*\)', '# Page config removed by dashboard', code, flags=re.DOTALL)
-    
-    # Handle secrets access gracefully
-    code = re.sub(
-        r'value=st\.secrets\.get\("general", \{\}\)\.get\("GEMINI_API_KEY", "[^"]*"\)',
-        'value="AIzaSyAF1pSbeOWw54HXdFaxHg0Oa3QsqlZitkI"',
-        code
-    )
     
     # Add hub directory to sys.path for imports (at the beginning for priority)
     hub_dir = str(abs_path.parent)

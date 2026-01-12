@@ -44,8 +44,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Default API Key from request
-DEFAULT_API_KEY = "AIzaSyAF1pSbeOWw54HXdFaxHg0Oa3QsqlZitkI"
+# Set Default API Key via session state (like MarketingHub pattern)
+if 'api_key' not in st.session_state:
+    st.session_state['api_key'] = ""
 
 # Demo Data
 DEMO_EMAILS = [
@@ -148,10 +149,13 @@ with st.sidebar:
         st.subheader("🔑 API Setup")
         api_key = st.text_input(
             "Google API Key", 
-            value=DEFAULT_API_KEY, 
+            value=st.session_state['api_key'], 
             type="password",
             help="Your Gemini API Key"
         )
+        # Update session state when user provides key
+        if api_key:
+            st.session_state['api_key'] = api_key
         
         st.subheader("📄 Data Ingestion")
         uploaded_file = st.file_uploader("Upload PDF", type=['pdf'])

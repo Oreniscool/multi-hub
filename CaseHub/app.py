@@ -8,6 +8,10 @@ st.set_page_config(
     layout="wide"
 )
 
+# Set Default API Key via session state (like MarketingHub pattern)
+if 'api_key' not in st.session_state:
+    st.session_state['api_key'] = ""
+
 # Sidebar Configuration
 st.sidebar.title("Configuration")
 
@@ -15,9 +19,12 @@ st.sidebar.title("Configuration")
 api_key_input = st.sidebar.text_input(
     "Gemini API Key", 
     type="password", 
-    help="Enter your Google Gemini API Key. If stored in secrets, it will be used by default.",
-    value=st.secrets.get("general", {}).get("GEMINI_API_KEY", "AIzaSyAF1pSbeOWw54HXdFaxHg0Oa3QsqlZitkI")
+    help="Enter your Google Gemini API Key.",
+    value=st.session_state['api_key']
 )
+# Update session state when user provides key
+if api_key_input:
+    st.session_state['api_key'] = api_key_input
 
 st.sidebar.markdown("---")
 

@@ -13,7 +13,7 @@ def app():
     # Configure Gemini
     try:
         genai.configure(api_key=st.session_state['api_key'])
-        model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        model = genai.GenerativeModel('models/gemma-3-27b-it')
     except Exception as e:
         st.error(f"Error configuring Gemini API: {e}")
         return

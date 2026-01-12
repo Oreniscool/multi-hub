@@ -1,15 +1,20 @@
 import google.generativeai as genai
 import json
 import os
-
-# Ideally this comes from secrets, but user provided it directly for this session.
-API_KEY = "AIzaSyAF1pSbeOWw54HXdFaxHg0Oa3QsqlZitkI"
+import streamlit as st
 
 class AIHandler:
     def __init__(self):
+        # Get API key from session_state (like MarketingHub pattern)
+        api_key = st.session_state.get('api_key', '')
+        if not api_key:
+            print("Warning: No API key found in session_state")
+            self.model = None
+            return
+            
         try:
-            genai.configure(api_key=API_KEY)
-            self.model = genai.GenerativeModel('gemini-2.0-flash')
+            genai.configure(api_key=api_key)
+            self.model = genai.GenerativeModel('models/gemma-3-27b-it')
         except Exception as e:
             print(f"Error configuring Gemini: {e}")
             self.model = None

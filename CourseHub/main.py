@@ -19,9 +19,14 @@ if 'generated_course' not in st.session_state: # Flag to track generation
 with st.sidebar:
     st.header("Configuration")
     
-    # API Key Input (Pre-filled for convenience as per prompt, but editable)
-    default_api_key = "AIzaSyAF1pSbeOWw54HXdFaxHg0Oa3QsqlZitkI"
-    api_key = st.text_input("Gemini API Key", value=default_api_key, type="password")
+    # Set Default API Key via session state (like MarketingHub pattern)
+    if 'api_key' not in st.session_state:
+        st.session_state['api_key'] = ""
+    
+    api_key = st.text_input("Gemini API Key", value=st.session_state['api_key'], type="password")
+    # Update session state when user provides key
+    if api_key:
+        st.session_state['api_key'] = api_key
     
     st.divider()
     

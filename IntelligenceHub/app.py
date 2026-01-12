@@ -11,8 +11,24 @@ st.set_page_config(
 
 # Preserve Streamlit's default theme (no forced CSS overrides)
 
+# Set Default API Key via session state (like MarketingHub pattern)
+if 'api_key' not in st.session_state:
+    st.session_state['api_key'] = ""
+
 # Sidebar Navigation
 st.sidebar.title("🛡️ Intel Hub")
+
+# API Key Input (like MarketingHub)
+with st.sidebar.expander("🔑 API Settings", expanded=True):
+    api_key = st.text_input(
+        "Google API Key",
+        type="password",
+        value=st.session_state['api_key'],
+        help="Enter your Gemini API Key to enable AI features."
+    )
+    if api_key:
+        st.session_state['api_key'] = api_key
+
 st.sidebar.markdown("---")
 
 module_selection = st.sidebar.radio(

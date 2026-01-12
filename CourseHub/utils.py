@@ -22,15 +22,11 @@ def generate_course_content(api_key: str, subject: str, topics: str, duration: i
     try:
         genai.configure(api_key=api_key)
         
-        # Try multiple model versions including newer ones
+        # Try Gemma models which have separate quotas from Gemini
         models_to_try = [
-            'gemini-2.0-flash',
-            'gemini-2.0-flash-lite',
-            'gemini-flash-latest',
-            'gemini-1.5-flash',
-            'gemini-1.5-pro',
-            'gemini-pro',
-            'models/gemini-1.5-flash'
+            'models/gemma-3-27b-it',
+            'models/gemma-3-12b-it',
+            'models/gemma-3-4b-it'
         ]
         
         last_exception = None
@@ -52,7 +48,7 @@ def generate_course_content(api_key: str, subject: str, topics: str, duration: i
         
         if not model:
              # Just use the first one if all failed setup (unlikely) or last used
-             model = genai.GenerativeModel('gemini-2.0-flash')
+             model = genai.GenerativeModel('models/gemma-3-27b-it')
 
         prompt = f"""
         Act as an expert educational content creator. Create a strictly structured {duration}-day course on the subject "{subject}".
