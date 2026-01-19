@@ -1,20 +1,28 @@
-FROM python:3.13.5-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
-    git \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt ./
-COPY src/ ./src/
+# Copy requirements and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-RUN pip3 install -r requirements.txt
+# Copy application files
+COPY . .
 
-EXPOSE 8501
+# Create .streamlit directory if it doesn't exist
+RUN mkdir -p .streamlit
 
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
+# Expose port
+EXPOSE 7860
 
-ENTRYPOINT ["streamlit", "run", "src/streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Health check
+HEALTHCHECK CMD curl --fail http://localhost:7860/_stcore/health
+
+# Run Streamlit
+CMD ["streamlit", "run", "app.py", "--server.port=7860", "--server.address=0.0.0.0"]

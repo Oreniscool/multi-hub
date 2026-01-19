@@ -16,20 +16,24 @@ Unified Streamlit interface that aggregates all business hubs (Case, Simulation,
 
 ```bash
 pip install -r requirements.txt
-streamlit run dashboard.py
+streamlit run app.py
 ```
+
+### Prompt Builder
+
+The Prompt Builder now runs inside Streamlit with optional Google Sheets logging. Set `google_service_account` (Streamlit secrets) or `GOOGLE_SHEETS_CREDS` (env var) with your service account JSON to enable saves.
 
 ## Deploy to Streamlit Community Cloud
 
 1. Fork/clone this repository to your GitHub account.
 2. On https://share.streamlit.io click "New app".
-3. Select the repo, branch (main) and set `dashboard.py` as the entry point.
+3. Select the repo, branch (main) and set `app.py` as the entry point.
 4. (Optional) Configure environment variables or secrets as needed.
 
 ## Repository Structure
 
 ```
-dashboard.py
+app.py
 requirements.txt
 CaseHub/
 ClassificationHub/
@@ -41,3 +45,8 @@ VectorisationHub/
 ```
 
 Each hub folder retains its original Streamlit application files. The dashboard dynamically loads the selected hub while sharing a single Streamlit session.
+
+### Prompt Builder (Next.js) inside MultiHub
+
+- The radio menu now includes **PromptBuilder**; selecting it embeds the Next.js prompt builder via iframe.
+- Configure the target URL with `PROMPT_BUILDER_URL` (defaults to `http://localhost:3000`).

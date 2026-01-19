@@ -11,3 +11,4 @@ fpdf
 requests
 beautifulsoup4
 openpyxl
+gspread
