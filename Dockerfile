@@ -18,10 +18,8 @@ COPY . .
 # Create .streamlit directory if it doesn't exist
 RUN mkdir -p .streamlit
 
-# Expose default Streamlit port (overridable via PORT)
+# Expose proxy port
 EXPOSE 8501
 
-# No container healthcheck (disabled to avoid platform probe conflicts)
-
-# Run Streamlit on fixed port 8501 (ignore platform PORT env to satisfy health probe)
-CMD ["sh", "-c", "streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true"]
+# Run Streamlit on 8502 and lightweight proxy on 8501 that serves /healthz and forwards other traffic
+CMD ["sh", "-c", "streamlit run app.py --server.port=8502 --server.address=0.0.0.0 --server.headless=true & python proxy.py"]
