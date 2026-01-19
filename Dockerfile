@@ -22,7 +22,7 @@ RUN mkdir -p .streamlit
 EXPOSE 8501
 
 # Health check uses PORT if set, else 8501
-HEALTHCHECK CMD sh -c "curl --fail http://localhost:${PORT:-8501}/_stcore/health || exit 1"
+HEALTHCHECK CMD sh -c "curl --fail http://localhost:${PORT:-8501}/health || exit 1"
 
 # Run Streamlit on PORT (defaults to 8501) and serve at /healthz so health probes succeed
 CMD ["sh", "-c", "streamlit run app.py --server.port=${PORT:-8501} --server.address=0.0.0.0 --server.baseUrlPath=healthz"]
