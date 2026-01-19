@@ -1,3 +1,13 @@
-altair
+streamlit>=1.28.0
+psutil
 pandas
-streamlit
+numpy
+plotly
+scikit-learn
+google-generativeai
+pypdf
+python-docx
+fpdf
+requests
+beautifulsoup4
+openpyxl
