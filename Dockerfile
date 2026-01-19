@@ -18,11 +18,11 @@ COPY . .
 # Create .streamlit directory if it doesn't exist
 RUN mkdir -p .streamlit
 
-# Expose port
-EXPOSE 7860
+# Expose default Streamlit port (overridable via PORT)
+EXPOSE 8501
 
-# Health check
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
+# Health check uses PORT if set, else 8501
+HEALTHCHECK CMD sh -c "curl --fail http://localhost:${PORT:-8501}/_stcore/health || exit 1"
 
-# Run Streamlit
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Run Streamlit on PORT (defaults to 8501)
+CMD ["sh", "-c", "streamlit run app.py --server.port=${PORT:-8501} --server.address=0.0.0.0"]
