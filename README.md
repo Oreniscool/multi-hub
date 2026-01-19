@@ -1,3 +1,15 @@
+---
+title: MultiHub
+emoji: 🚀
+colorFrom: blue
+colorTo: green
+sdk: streamlit
+sdk_version: "1.32.0"
+python_version: "3.10"
+app_file: app.py
+pinned: false
+---
+
 # MultiHub Dashboard
 
 Unified Streamlit interface that aggregates all business hubs (Case, Simulation, Course, Marketing, Intelligence, Vectorisation, Classification) into a single app. The dashboard lets you switch between hubs via a simple radio selector.
