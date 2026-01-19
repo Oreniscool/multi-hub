@@ -22,7 +22,7 @@ RUN mkdir -p .streamlit
 EXPOSE 7860
 
 # Health check
-HEALTHCHECK CMD curl --fail http://localhost:7860/_stcore/health
+HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
 
 # Run Streamlit
-CMD ["streamlit", "run", "app.py", "--server.port=7860", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
