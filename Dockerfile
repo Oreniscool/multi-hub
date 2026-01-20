@@ -18,8 +18,8 @@ COPY . .
 # Create .streamlit directory if it doesn't exist
 RUN mkdir -p .streamlit
 
-# Expose proxy port
+# Expose Streamlit port
 EXPOSE 8501
 
-# Run Streamlit on 8502 and lightweight proxy on 8501 that serves /healthz and forwards other traffic
-CMD ["sh", "-c", "streamlit run app.py --server.port=8502 --server.address=0.0.0.0 --server.headless=true & python proxy.py"]
+# Run Streamlit directly
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
