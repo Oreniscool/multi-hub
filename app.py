@@ -7,6 +7,15 @@ import gspread
 import google.generativeai as genai
 from datetime import datetime
 from pathlib import Path
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import Flow
+from googleapiclient.discovery import build
+import pickle
+import hashlib
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Page Configuration - MUST be first Streamlit command
 st.set_page_config(
@@ -17,11 +26,18 @@ st.set_page_config(
 
 PROMPT_BUILDER_URL = os.getenv("PROMPT_BUILDER_URL", "https://prompt-builder-frontend-q92uz0e5c-qitiyas-projects.vercel.app/")
 PROMPT_MODEL = os.getenv("PROMPT_MODEL", "gemini-2.5-flash")
-GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "1kifjalBeYoTqgYXHG3g-XsbiEAhh3fDuqfRnkRll1ug")
-GOOGLE_APPS_SCRIPT_WEBHOOK_URL = os.getenv(
-    "GOOGLE_APPS_SCRIPT_WEBHOOK_URL",
-    "https://script.google.com/macros/s/AKfycbxyds2ERAkPa1m-S5ilL3PmumsYWLlhMdzEJm11xYq0Oe7fVslRdqgegf7Fo0KQmvpGYg/exec",
-)
+
+# OAuth Configuration
+OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
+OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "")
+OAUTH_REDIRECT_URI = os.getenv("OAUTH_REDIRECT_URI", "http://localhost:8501")
+SCOPES = [
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'openid'
+]
 
 # Session state initialization
 st.session_state.setdefault('api_key', "")
@@ -29,8 +45,10 @@ st.session_state.setdefault('hub_paths', [])
 st.session_state.setdefault('pb_chat', [])
 st.session_state.setdefault('pb_final_srs', "")
 st.session_state.setdefault('pb_title', "App SRS")
-st.session_state.setdefault('pb_sheet_id', "")
-st.session_state.setdefault('pb_ws', "")
+st.session_state.setdefault('user_creds', None)
+st.session_state.setdefault('user_email', None)
+st.session_state.setdefault('user_name', None)
+st.session_state.setdefault('user_sheet_id', None)
 
 # Custom CSS
 st.markdown(
@@ -53,7 +71,7 @@ with st.sidebar:
     api_key = st.text_input(
         "Gemini API Key",
         type="password",
-        value=st.session_state['api_key'],
+        value=st.session_state.get('api_key', ""),
         help="Enter your API key once here. It will be shared with all hubs.",
     )
     if api_key:
@@ -89,63 +107,118 @@ selected_hub = st.radio(
 st.markdown("---")
 
 
-def _get_sheets_client():
-    raw_creds = None
-    if "google_service_account" in st.secrets:
-        raw_creds = st.secrets["google_service_account"]
-    elif os.getenv("GOOGLE_SHEETS_CREDS"):
-        raw_creds = os.getenv("GOOGLE_SHEETS_CREDS")
-
-    if not raw_creds:
-        return None, "Set google_service_account in Streamlit secrets or GOOGLE_SHEETS_CREDS env var"
-
+def _get_user_info(creds):
+    """Get user info from Google OAuth credentials"""
     try:
-        creds_dict = json.loads(raw_creds) if isinstance(raw_creds, str) else raw_creds
-        client = gspread.service_account_from_dict(creds_dict)
-        return client, None
+        service = build('oauth2', 'v2', credentials=creds)
+        user_info = service.userinfo().get().execute()
+        return user_info.get('email'), user_info.get('name'), None
     except Exception as exc:
-        return None, f"Failed to init Google Sheets client: {exc}"
+        return None, None, f"Failed to get user info: {exc}"
 
 
-def _append_prompt_row(sheet_id: str, worksheet: str, row: list):
-    # Prefer Apps Script webhook; fallback to gspread if webhook missing
-    if GOOGLE_APPS_SCRIPT_WEBHOOK_URL:
-        try:
-            payload = {
-                "timestamp": row[0],
-                "prompt": row[1],
-                "featureCount": row[2],
-                "features": row[3] if isinstance(row[3], list) else row[3],
-                "conversation": row[4],
-            }
-            resp = requests.post(
-                GOOGLE_APPS_SCRIPT_WEBHOOK_URL,
-                json=payload,
-                timeout=10,
-            )
-            if resp.status_code == 200:
-                body = {}
-                try:
-                    body = resp.json()
-                except Exception:
-                    body = {}
-                if body.get("success") is True or resp.status_code == 200:
-                    return True, None
-                return False, f"Webhook error: {resp.status_code} {resp.text}"
-            return False, f"Webhook error: {resp.status_code} {resp.text}"
-        except Exception as exc:
-            return False, f"Webhook request failed: {exc}"
-
-    client, err = _get_sheets_client()
-    if err:
-        return False, err
+def _get_or_create_user_sheet(creds, user_email):
+    """Get or create a Google Sheet for the user"""
     try:
+        # Create gspread client with user's OAuth credentials
+        client = gspread.authorize(creds)
+        
+        # Generate a consistent sheet name for the user
+        sheet_name = f"Prompts - {user_email}"
+        
+        # Try to find existing sheet
+        try:
+            sheet = client.open(sheet_name)
+            return sheet.id, None
+        except gspread.SpreadsheetNotFound:
+            # Create new sheet
+            sheet = client.create(sheet_name)
+            # Set up the header row
+            worksheet = sheet.get_worksheet(0)
+            worksheet.update('A1:E1', [['Timestamp', 'Prompt/SRS', 'Feature Count', 'Features', 'Conversation Length']])
+            # User is already the owner via OAuth, no need to share
+            return sheet.id, None
+    except Exception as exc:
+        return None, f"Failed to get/create sheet: {exc}"
+
+
+def _append_prompt_row(creds, sheet_id: str, row: list):
+    """Append a row to user's Google Sheet using their OAuth credentials"""
+    try:
+        client = gspread.authorize(creds)
         sh = client.open_by_key(sheet_id)
-        ws = sh.worksheet(worksheet if worksheet else "Prompts")
+        ws = sh.get_worksheet(0)  # Use first worksheet
         ws.append_row(row, value_input_option="USER_ENTERED")
         return True, None
     except Exception as exc:
         return False, f"Google Sheets error: {exc}"
+
+
+def _init_oauth_flow():
+    """Initialize OAuth flow for Google authentication"""
+    if not OAUTH_CLIENT_ID or not OAUTH_CLIENT_SECRET:
+        return None, "OAuth credentials not configured. Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET environment variables."
+    
+    try:
+        client_config = {
+            "web": {
+                "client_id": OAUTH_CLIENT_ID,
+                "client_secret": OAUTH_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [OAUTH_REDIRECT_URI]
+            }
+        }
+        flow = Flow.from_client_config(
+            client_config,
+            scopes=SCOPES,
+            redirect_uri=OAUTH_REDIRECT_URI
+        )
+        return flow, None
+    except Exception as exc:
+        return None, f"Failed to initialize OAuth: {exc}"
+
+
+def _handle_oauth_callback():
+    """Handle OAuth callback and exchange code for credentials"""
+    # Check if we have an authorization code in query params
+    query_params = st.query_params
+    if 'code' in query_params:
+        flow, err = _init_oauth_flow()
+        if err:
+            return None, err
+        
+        try:
+            # Exchange code for credentials
+            flow.fetch_token(code=query_params['code'])
+            creds = flow.credentials
+            
+            # Store credentials in session
+            st.session_state.user_creds = creds
+            
+            # Get user info
+            email, name, err = _get_user_info(creds)
+            if err:
+                return None, err
+            
+            st.session_state.user_email = email
+            st.session_state.user_name = name
+            
+            # Get or create user's sheet
+            sheet_id, err = _get_or_create_user_sheet(creds, email)
+            if err:
+                return None, err
+            
+            st.session_state.user_sheet_id = sheet_id
+            
+            # Clear the code from URL
+            st.query_params.clear()
+            
+            return True, None
+        except Exception as exc:
+            return None, f"OAuth callback error: {exc}"
+    
+    return False, None
 
 
 def _chat_reply(user_msg: str, history: list, api_key: str):
@@ -267,19 +340,55 @@ elif hub_name == "ClassificationHub":
     run_hub_code("ClassificationHub/app.py")
 elif hub_name == "PromptBuilder":
     st.subheader("Prompt Builder (Streamlit)")
-    st.caption("One chat to define your app. Generate SRS and save to Google Sheets.")
+    st.caption("One chat to define your app. Generate SRS and save to your personal Google Sheets.")
 
-    # Sheet settings (fixed targets)
-    with st.expander("Google Sheets settings", expanded=True):
-        st.markdown(f"**Sheet ID:** `{GOOGLE_SHEET_ID}`")
-        st.markdown(f"**Webhook:** `{GOOGLE_APPS_SCRIPT_WEBHOOK_URL}`")
-        st.info("Saves always go to the fixed sheet via the Apps Script webhook.")
+    # Handle OAuth callback
+    callback_result, callback_err = _handle_oauth_callback()
+    if callback_err:
+        st.error(callback_err)
+    elif callback_result:
+        st.success(f"Logged in as {st.session_state.user_email}")
+        st.rerun()
+
+    # User authentication section
+    with st.expander("🔐 Google Account Login", expanded=not st.session_state.user_email):
+        if st.session_state.user_email:
+            st.success(f"✅ Logged in as: **{st.session_state.user_name}** ({st.session_state.user_email})")
+            if st.session_state.user_sheet_id:
+                sheet_url = f"https://docs.google.com/spreadsheets/d/{st.session_state.user_sheet_id}"
+                st.markdown(f"📊 Your sheet: [Open in Google Sheets]({sheet_url})")
+            
+            if st.button("🚪 Logout"):
+                st.session_state.user_creds = None
+                st.session_state.user_email = None
+                st.session_state.user_name = None
+                st.session_state.user_sheet_id = None
+                st.rerun()
+        else:
+            st.info("Please login with your Google account to save prompts to your personal sheet.")
+            
+            flow, err = _init_oauth_flow()
+            if err:
+                st.error(err)
+                st.warning("To enable Google login, set these environment variables:")
+                st.code("GOOGLE_OAUTH_CLIENT_ID=your_client_id\nGOOGLE_OAUTH_CLIENT_SECRET=your_client_secret\nOAUTH_REDIRECT_URI=http://localhost:8501")
+            else:
+                auth_url, _ = flow.authorization_url(prompt='consent')
+                st.markdown(f"[🔗 Login with Google]({auth_url})")
+                st.caption("You'll be redirected to Google to authorize this app.")
 
     st.markdown("---")
     st.markdown("#### Chat")
-    for msg in st.session_state.pb_chat:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    for idx, msg in enumerate(st.session_state.pb_chat):
+        role = msg["role"]
+        content = msg["content"]
+        # Create preview (first 100 characters)
+        preview = content[:100] + "..." if len(content) > 100 else content
+        emoji = "👤" if role == "user" else "🤖"
+        label = f"{emoji} {'You' if role == 'user' else 'Assistant'}: {preview}"
+        
+        with st.expander(label, expanded=False):
+            st.markdown(content)
 
     user_chat = st.chat_input("Describe the app (goal, users, platform, data, DB, auth, integrations). Keep it concise.")
     if user_chat:
@@ -326,23 +435,36 @@ elif hub_name == "PromptBuilder":
                 key="pb_download"
             )
         with col2:
-            if st.button("Save to Google Sheets", type="primary"):
-                srs = st.session_state.pb_final_srs or ""
-                timestamp = datetime.utcnow().isoformat() + "Z"
-                feature_lines = [ln.strip() for ln in srs.splitlines() if ln.strip().startswith(('-','•','*'))]
-                feature_count = len(feature_lines)
-                features_blob = "\n".join(feature_lines)
-                convo_length = len(st.session_state.pb_chat)
-
-                row = [
-                    timestamp,              # Timestamp
-                    srs,                    # Prompt / SRS
-                    feature_count,          # Feature Count
-                    feature_lines or features_blob,  # Features (list preferred)
-                    convo_length,           # Conversation Length
-                ]
-                ok, err = _append_prompt_row(GOOGLE_SHEET_ID, "", row)
-                if ok:
-                    st.success("Saved to Google Sheets.")
+            if st.button("Save to Google Sheets", type="primary", disabled=not st.session_state.user_email):
+                if not st.session_state.user_email:
+                    st.error("Please login with Google first.")
+                elif not st.session_state.user_sheet_id:
+                    st.error("No sheet found. Please try logging in again.")
                 else:
-                    st.error(err)
+                    srs = st.session_state.pb_final_srs or ""
+                    timestamp = datetime.utcnow().isoformat() + "Z"
+                    feature_lines = [ln.strip() for ln in srs.splitlines() if ln.strip().startswith(('-','•','*'))]
+                    feature_count = len(feature_lines)
+                    features_blob = "\n".join(feature_lines)
+                    convo_length = len(st.session_state.pb_chat)
+
+                    row = [
+                        timestamp,              # Timestamp
+                        srs,                    # Prompt / SRS
+                        feature_count,          # Feature Count
+                        features_blob,          # Features as text blob
+                        convo_length,           # Conversation Length
+                    ]
+                    ok, err = _append_prompt_row(
+                        st.session_state.user_creds,
+                        st.session_state.user_sheet_id,
+                        row
+                    )
+                    if ok:
+                        sheet_url = f"https://docs.google.com/spreadsheets/d/{st.session_state.user_sheet_id}"
+                        st.success(f"✅ Saved to your Google Sheet! [Open Sheet]({sheet_url})")
+                    else:
+                        st.error(err)
+            
+            if not st.session_state.user_email:
+                st.caption("⚠️ Login required to save")
