@@ -19,8 +19,8 @@ load_dotenv()
 
 # Page Configuration - MUST be first Streamlit command
 st.set_page_config(
-    page_title="MultiHub Dashboard",
-    page_icon="🚀",
+    page_title="Prompt Builder — Build Apps from Conversation",
+    page_icon="🎨",
     layout="wide"
 )
 
@@ -49,6 +49,8 @@ st.session_state.setdefault('user_creds', None)
 st.session_state.setdefault('user_email', None)
 st.session_state.setdefault('user_name', None)
 st.session_state.setdefault('user_sheet_id', None)
+st.session_state.setdefault('current_view', 'prompt_builder')
+st.session_state.setdefault('selected_example', None)
 
 # OAuth and credential helper functions
 def _get_user_info(creds):
@@ -252,8 +254,22 @@ st.markdown(
         font-size: 2.5rem;
         font-weight: bold;
         text-align: center;
-        margin-bottom: 1rem;
+        margin-bottom: 0.25rem;
     }
+    .main-subtitle {
+        font-size: 1.1rem;
+        text-align: center;
+        color: #888;
+        margin-bottom: 1.5rem;
+    }
+    .example-card {
+        border: 1px solid #333;
+        border-radius: 10px;
+        padding: 1rem;
+        margin-bottom: 0.5rem;
+    }
+    .example-card h4 { margin: 0 0 0.25rem 0; }
+    .example-card p { margin: 0; font-size: 0.85rem; color: #aaa; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -278,9 +294,11 @@ if not st.session_state.user_email:
             # If credentials are invalid, clear cache
             _clear_credentials_cache()
 
-# Sidebar - Global Settings and Google Login
+# ─────────────────────────────────────────────────────────────────────────────
+# SIDEBAR
+# ─────────────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.header("🔑 Global Settings")
+    st.header("🔑 Settings")
     api_key = st.text_input(
         "Gemini API Key",
         type="password",
@@ -320,29 +338,41 @@ with st.sidebar:
             auth_url, _ = flow.authorization_url(prompt='consent')
             st.markdown(f"[🔗 Login with Google]({auth_url})")
 
-# Title
-st.markdown('<div class="main-title">🚀 MultiHub - Integrated Dashboard</div>', unsafe_allow_html=True)
-st.caption("Use the hub switcher below.")
+    st.markdown("---")
 
-# Hub selector
-st.markdown("### Open app:")
-selected_hub = st.radio(
-    "Select application:",
-    [
-        "📚 CaseHub",
-        "💼 SimulationHub",
-        "🎓 CourseHub",
-        "🚀 MarketingHub",
-        "🛡️ IntelligenceHub",
-        "💠 VectorisationHub",
-        "🏷️ ClassificationHub",
-        "🎨 PromptBuilder",
-    ],
-    horizontal=True,
-    label_visibility="collapsed",
-)
-st.markdown("---")
+    # Navigation
+    st.subheader("📍 Navigation")
 
+    if st.button("🎨  Prompt Builder", use_container_width=True, type="primary" if st.session_state.current_view == 'prompt_builder' else "secondary"):
+        st.session_state.current_view = 'prompt_builder'
+        st.session_state.selected_example = None
+        st.rerun()
+
+    st.markdown("")
+    st.caption("EXAMPLE PROJECTS")
+    st.caption("Built with the Prompt Builder workflow")
+
+    EXAMPLE_PROJECTS = {
+        "CaseHub":           {"icon": "📚", "file": "CaseHub/app.py",                  "desc": "Case study analysis & generation"},
+        "SimulationHub":     {"icon": "💼", "file": "SimulationHub/mba_sim_engine.py",  "desc": "MBA business simulation engine"},
+        "CourseHub":         {"icon": "🎓", "file": "CourseHub/main.py",                "desc": "Course creation & management"},
+        "MarketingHub":      {"icon": "🚀", "file": "MarketingHub/main.py",             "desc": "Marketing content & analytics"},
+        "IntelligenceHub":   {"icon": "🛡️", "file": "IntelligenceHub/app.py",           "desc": "Market & competitive intelligence"},
+        "VectorisationHub":  {"icon": "💠", "file": "VectorisationHub/app.py",          "desc": "Document vectorisation pipeline"},
+        "ClassificationHub": {"icon": "🏷️", "file": "ClassificationHub/app.py",         "desc": "Content classification tools"},
+    }
+
+    for name, info in EXAMPLE_PROJECTS.items():
+        is_active = (st.session_state.current_view == 'example' and st.session_state.selected_example == name)
+        btn_type = "primary" if is_active else "secondary"
+        if st.button(f"{info['icon']}  {name}", key=f"nav_{name}", use_container_width=True, type=btn_type):
+            st.session_state.current_view = 'example'
+            st.session_state.selected_example = name
+            st.rerun()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HELPER FUNCTIONS
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _chat_reply(user_msg: str, history: list, api_key: str):
     if not api_key:
@@ -444,40 +474,38 @@ def run_hub_code(file_path):
         os.chdir(original_dir)
 
 
-# Display selected hub content
-hub_name = selected_hub.split(" ")[1]
+# ─────────────────────────────────────────────────────────────────────────────
+# MAIN CONTENT AREA
+# ─────────────────────────────────────────────────────────────────────────────
 
-if hub_name == "CaseHub":
-    run_hub_code("CaseHub/app.py")
-elif hub_name == "SimulationHub":
-    run_hub_code("SimulationHub/mba_sim_engine.py")
-elif hub_name == "CourseHub":
-    run_hub_code("CourseHub/main.py")
-elif hub_name == "MarketingHub":
-    run_hub_code("MarketingHub/main.py")
-elif hub_name == "IntelligenceHub":
-    run_hub_code("IntelligenceHub/app.py")
-elif hub_name == "VectorisationHub":
-    run_hub_code("VectorisationHub/app.py")
-elif hub_name == "ClassificationHub":
-    run_hub_code("ClassificationHub/app.py")
-elif hub_name == "PromptBuilder":
-    st.subheader("Prompt Builder (Streamlit)")
-    st.caption("One chat to define your app. Generate SRS and save to your personal Google Sheets.")
+if st.session_state.current_view == 'example' and st.session_state.selected_example:
+    # ── Example project view ──
+    proj = EXAMPLE_PROJECTS[st.session_state.selected_example]
+    st.caption(f"📂 Example Project  ›  {proj['icon']} {st.session_state.selected_example}")
+    st.markdown(f"### {proj['icon']} {st.session_state.selected_example}")
+    st.caption(proj['desc'])
+    st.info("💡 This project was built using the Prompt Builder workflow. "
+            "Head back to the **Prompt Builder** to create your own!")
+    st.markdown("---")
+    run_hub_code(proj['file'])
+
+else:
+    # ── Prompt Builder (default / main view) ──
+    st.markdown('<div class="main-title">🎨 Prompt Builder</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-subtitle">One conversation to define your app. Generate an SRS and build it.</div>', unsafe_allow_html=True)
 
     # Handle OAuth callback
     callback_result, callback_err = _handle_oauth_callback()
     if callback_err:
         st.error(callback_err)
     elif callback_result:
-        # Save credentials to cache for persistence
         if st.session_state.user_creds and st.session_state.user_email:
             _save_credentials_to_cache(st.session_state.user_creds, st.session_state.user_email)
         st.success(f"Logged in as {st.session_state.user_email}")
         st.rerun()
 
-    st.markdown("---")
-    st.markdown("#### Chat")
+    # ── Chat section ──
+    st.markdown("#### 💬 Chat")
     
     # Progress tracking
     MAX_EXCHANGES = 10
@@ -485,7 +513,6 @@ elif hub_name == "PromptBuilder":
     current_count = len(user_messages)
     progress_pct = min(current_count / MAX_EXCHANGES, 1.0)
     
-    # Progress bar with message
     col_prog, col_count = st.columns([4, 1])
     with col_prog:
         st.progress(progress_pct)
@@ -502,7 +529,6 @@ elif hub_name == "PromptBuilder":
     for idx, msg in enumerate(st.session_state.pb_chat):
         role = msg["role"]
         content = msg["content"]
-        # Create preview (first 100 characters)
         preview = content[:100] + "..." if len(content) > 100 else content
         emoji = "👤" if role == "user" else "🤖"
         label = f"{emoji} {'You' if role == 'user' else 'Assistant'}: {preview}"
@@ -510,7 +536,6 @@ elif hub_name == "PromptBuilder":
         with st.expander(label, expanded=False):
             st.markdown(content)
 
-    # Disable chat input if limit reached
     chat_disabled = current_count >= MAX_EXCHANGES
     chat_placeholder = "You've reached the exchange limit. Please generate your SRS." if chat_disabled else "Describe the app (goal, users, platform, data, DB, auth, integrations). Keep it concise."
     
@@ -542,7 +567,7 @@ elif hub_name == "PromptBuilder":
 
     if st.session_state.get("pb_final_srs"):
         st.markdown("---")
-        st.markdown("#### Final SRS prompt (for app builder)")
+        st.markdown("#### 📄 Final SRS prompt (for app builder)")
         with st.container(border=True):
             st.markdown(st.session_state.pb_final_srs)
 
@@ -570,11 +595,11 @@ elif hub_name == "PromptBuilder":
                     convo_length = len(st.session_state.pb_chat)
 
                     row = [
-                        timestamp,              # Timestamp
-                        srs,                    # Prompt / SRS
-                        feature_count,          # Feature Count
-                        features_blob,          # Features as text blob
-                        convo_length,           # Conversation Length
+                        timestamp,
+                        srs,
+                        feature_count,
+                        features_blob,
+                        convo_length,
                     ]
                     ok, err = _append_prompt_row(
                         st.session_state.user_creds,
