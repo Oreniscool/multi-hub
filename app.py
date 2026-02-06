@@ -50,63 +50,7 @@ st.session_state.setdefault('user_email', None)
 st.session_state.setdefault('user_name', None)
 st.session_state.setdefault('user_sheet_id', None)
 
-# Custom CSS
-st.markdown(
-    """
-<style>
-    .main-title {
-        font-size: 2.5rem;
-        font-weight: bold;
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-</style>
-""",
-    unsafe_allow_html=True,
-)
-
-# Sidebar - Global API Key
-with st.sidebar:
-    st.header("🔑 Global Settings")
-    api_key = st.text_input(
-        "Gemini API Key",
-        type="password",
-        value=st.session_state.get('api_key', ""),
-        help="Enter your API key once here. It will be shared with all hubs.",
-    )
-    if api_key:
-        st.session_state['api_key'] = api_key
-    st.markdown("---")
-    st.subheader("🔗 Other Apps")
-    st.markdown(
-        f'<a href="{PROMPT_BUILDER_URL}" target="_blank" rel="noopener noreferrer">Open Prompt Builder (Next.js) ↗</a>',
-        unsafe_allow_html=True,
-    )
-
-# Title
-st.markdown('<div class="main-title">🚀 MultiHub - Integrated Dashboard</div>', unsafe_allow_html=True)
-st.caption("Use the hub switcher below.")
-
-# Hub selector
-st.markdown("### Open app:")
-selected_hub = st.radio(
-    "Select application:",
-    [
-        "📚 CaseHub",
-        "💼 SimulationHub",
-        "🎓 CourseHub",
-        "🚀 MarketingHub",
-        "🛡️ IntelligenceHub",
-        "💠 VectorisationHub",
-        "🏷️ ClassificationHub",
-        "🎨 PromptBuilder",
-    ],
-    horizontal=True,
-    label_visibility="collapsed",
-)
-st.markdown("---")
-
-
+# OAuth and credential helper functions
 def _get_user_info(creds):
     """Get user info from Google OAuth credentials"""
     try:
@@ -219,6 +163,185 @@ def _handle_oauth_callback():
             return None, f"OAuth callback error: {exc}"
     
     return False, None
+
+
+# Helper functions for credential persistence
+def _save_credentials_to_cache(creds, email):
+    """Save credentials to local cache file"""
+    try:
+        cache_dir = Path.home() / '.multihub_cache'
+        cache_dir.mkdir(exist_ok=True)
+        cache_file = cache_dir / f'user_{hashlib.md5(email.encode()).hexdigest()}.pkl'
+        
+        creds_data = {
+            'token': creds.token,
+            'refresh_token': creds.refresh_token,
+            'token_uri': creds.token_uri,
+            'client_id': creds.client_id,
+            'client_secret': creds.client_secret,
+            'scopes': creds.scopes,
+            'email': email
+        }
+        
+        with open(cache_file, 'wb') as f:
+            pickle.dump(creds_data, f)
+        return True
+    except Exception as e:
+        print(f"Failed to save credentials: {e}")
+        return False
+
+
+def _load_credentials_from_cache():
+    """Load credentials from local cache"""
+    try:
+        cache_dir = Path.home() / '.multihub_cache'
+        if not cache_dir.exists():
+            return None
+        
+        # Find the most recent cache file
+        cache_files = list(cache_dir.glob('user_*.pkl'))
+        if not cache_files:
+            return None
+        
+        # Use the most recently modified file
+        latest_cache = max(cache_files, key=lambda p: p.stat().st_mtime)
+        
+        with open(latest_cache, 'rb') as f:
+            creds_data = pickle.load(f)
+        
+        # Reconstruct credentials
+        creds = Credentials(
+            token=creds_data['token'],
+            refresh_token=creds_data['refresh_token'],
+            token_uri=creds_data['token_uri'],
+            client_id=creds_data['client_id'],
+            client_secret=creds_data['client_secret'],
+            scopes=creds_data['scopes']
+        )
+        
+        return creds, creds_data['email']
+    except Exception as e:
+        print(f"Failed to load credentials: {e}")
+        return None
+
+
+def _clear_credentials_cache(email=None):
+    """Clear cached credentials"""
+    try:
+        cache_dir = Path.home() / '.multihub_cache'
+        if not cache_dir.exists():
+            return
+        
+        if email:
+            cache_file = cache_dir / f'user_{hashlib.md5(email.encode()).hexdigest()}.pkl'
+            if cache_file.exists():
+                cache_file.unlink()
+        else:
+            # Clear all cache files
+            for cache_file in cache_dir.glob('user_*.pkl'):
+                cache_file.unlink()
+    except Exception as e:
+        print(f"Failed to clear credentials: {e}")
+
+
+# Custom CSS
+st.markdown(
+    """
+<style>
+    .main-title {
+        font-size: 2.5rem;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+# Try to load cached credentials on startup
+if not st.session_state.user_email:
+    cached_data = _load_credentials_from_cache()
+    if cached_data:
+        creds, cached_email = cached_data
+        # Verify credentials are still valid
+        try:
+            email, name, err = _get_user_info(creds)
+            if not err and email:
+                st.session_state.user_creds = creds
+                st.session_state.user_email = email
+                st.session_state.user_name = name
+                # Get sheet ID
+                sheet_id, _ = _get_or_create_user_sheet(creds, email)
+                st.session_state.user_sheet_id = sheet_id
+        except:
+            # If credentials are invalid, clear cache
+            _clear_credentials_cache()
+
+# Sidebar - Global Settings and Google Login
+with st.sidebar:
+    st.header("🔑 Global Settings")
+    api_key = st.text_input(
+        "Gemini API Key",
+        type="password",
+        value=st.session_state.get('api_key', ""),
+        help="Enter your API key once here. It will be shared with all hubs.",
+    )
+    if api_key:
+        st.session_state['api_key'] = api_key
+    
+    st.markdown("---")
+    
+    # Google Authentication in Sidebar
+    st.subheader("🔐 Google Account")
+    if st.session_state.user_email:
+        st.success(f"✅ **{st.session_state.user_name}**")
+        st.caption(f"{st.session_state.user_email}")
+        if st.session_state.user_sheet_id:
+            sheet_url = f"https://docs.google.com/spreadsheets/d/{st.session_state.user_sheet_id}"
+            st.markdown(f"📊 [Your Sheet]({sheet_url})")
+        
+        if st.button("🚪 Logout", key="sidebar_logout"):
+            _clear_credentials_cache(st.session_state.user_email)
+            st.session_state.user_creds = None
+            st.session_state.user_email = None
+            st.session_state.user_name = None
+            st.session_state.user_sheet_id = None
+            st.rerun()
+    else:
+        st.info("Login to save prompts")
+        
+        flow, err = _init_oauth_flow()
+        if err:
+            st.error("OAuth not configured")
+            with st.expander("Setup Instructions"):
+                st.code("GOOGLE_OAUTH_CLIENT_ID=your_id\nGOOGLE_OAUTH_CLIENT_SECRET=your_secret\nOAUTH_REDIRECT_URI=http://localhost:8501")
+        else:
+            auth_url, _ = flow.authorization_url(prompt='consent')
+            st.markdown(f"[🔗 Login with Google]({auth_url})")
+
+# Title
+st.markdown('<div class="main-title">🚀 MultiHub - Integrated Dashboard</div>', unsafe_allow_html=True)
+st.caption("Use the hub switcher below.")
+
+# Hub selector
+st.markdown("### Open app:")
+selected_hub = st.radio(
+    "Select application:",
+    [
+        "📚 CaseHub",
+        "💼 SimulationHub",
+        "🎓 CourseHub",
+        "🚀 MarketingHub",
+        "🛡️ IntelligenceHub",
+        "💠 VectorisationHub",
+        "🏷️ ClassificationHub",
+        "🎨 PromptBuilder",
+    ],
+    horizontal=True,
+    label_visibility="collapsed",
+)
+st.markdown("---")
 
 
 def _chat_reply(user_msg: str, history: list, api_key: str):
@@ -347,38 +470,35 @@ elif hub_name == "PromptBuilder":
     if callback_err:
         st.error(callback_err)
     elif callback_result:
+        # Save credentials to cache for persistence
+        if st.session_state.user_creds and st.session_state.user_email:
+            _save_credentials_to_cache(st.session_state.user_creds, st.session_state.user_email)
         st.success(f"Logged in as {st.session_state.user_email}")
         st.rerun()
 
-    # User authentication section
-    with st.expander("🔐 Google Account Login", expanded=not st.session_state.user_email):
-        if st.session_state.user_email:
-            st.success(f"✅ Logged in as: **{st.session_state.user_name}** ({st.session_state.user_email})")
-            if st.session_state.user_sheet_id:
-                sheet_url = f"https://docs.google.com/spreadsheets/d/{st.session_state.user_sheet_id}"
-                st.markdown(f"📊 Your sheet: [Open in Google Sheets]({sheet_url})")
-            
-            if st.button("🚪 Logout"):
-                st.session_state.user_creds = None
-                st.session_state.user_email = None
-                st.session_state.user_name = None
-                st.session_state.user_sheet_id = None
-                st.rerun()
-        else:
-            st.info("Please login with your Google account to save prompts to your personal sheet.")
-            
-            flow, err = _init_oauth_flow()
-            if err:
-                st.error(err)
-                st.warning("To enable Google login, set these environment variables:")
-                st.code("GOOGLE_OAUTH_CLIENT_ID=your_client_id\nGOOGLE_OAUTH_CLIENT_SECRET=your_client_secret\nOAUTH_REDIRECT_URI=http://localhost:8501")
-            else:
-                auth_url, _ = flow.authorization_url(prompt='consent')
-                st.markdown(f"[🔗 Login with Google]({auth_url})")
-                st.caption("You'll be redirected to Google to authorize this app.")
-
     st.markdown("---")
     st.markdown("#### Chat")
+    
+    # Progress tracking
+    MAX_EXCHANGES = 10
+    user_messages = [msg for msg in st.session_state.pb_chat if msg["role"] == "user"]
+    current_count = len(user_messages)
+    progress_pct = min(current_count / MAX_EXCHANGES, 1.0)
+    
+    # Progress bar with message
+    col_prog, col_count = st.columns([4, 1])
+    with col_prog:
+        st.progress(progress_pct)
+    with col_count:
+        st.caption(f"{current_count}/{MAX_EXCHANGES} exchanges")
+    
+    if current_count >= MAX_EXCHANGES:
+        st.success("✅ You've reached 10 exchanges! Ready to generate your SRS.")
+    elif current_count >= 7:
+        st.info(f"💡 {MAX_EXCHANGES - current_count} more exchanges until ready to generate SRS.")
+    
+    st.markdown("")
+    
     for idx, msg in enumerate(st.session_state.pb_chat):
         role = msg["role"]
         content = msg["content"]
@@ -390,7 +510,11 @@ elif hub_name == "PromptBuilder":
         with st.expander(label, expanded=False):
             st.markdown(content)
 
-    user_chat = st.chat_input("Describe the app (goal, users, platform, data, DB, auth, integrations). Keep it concise.")
+    # Disable chat input if limit reached
+    chat_disabled = current_count >= MAX_EXCHANGES
+    chat_placeholder = "You've reached the exchange limit. Please generate your SRS." if chat_disabled else "Describe the app (goal, users, platform, data, DB, auth, integrations). Keep it concise."
+    
+    user_chat = st.chat_input(chat_placeholder, disabled=chat_disabled)
     if user_chat:
         st.session_state.pb_chat.append({"role": "user", "content": user_chat})
         reply, err = _chat_reply(user_chat, st.session_state.pb_chat[:-1], st.session_state.get("api_key", ""))
@@ -402,7 +526,7 @@ elif hub_name == "PromptBuilder":
             st.rerun()
 
     st.markdown("---")
-    satisfied = st.checkbox("I have provided enough detail; generate the SRS now.", value=False)
+    satisfied = st.checkbox("I have provided enough detail; generate the SRS now.", value=current_count >= MAX_EXCHANGES)
     col_gen, col_title = st.columns([2, 1])
     with col_gen:
         if satisfied and st.button("Generate prompt (SRS)", type="primary"):
@@ -419,19 +543,16 @@ elif hub_name == "PromptBuilder":
     if st.session_state.get("pb_final_srs"):
         st.markdown("---")
         st.markdown("#### Final SRS prompt (for app builder)")
-        st.code(st.session_state.pb_final_srs)
+        with st.container(border=True):
+            st.markdown(st.session_state.pb_final_srs)
 
         col1, col2 = st.columns(2)
         with col1:
             st.download_button(
-                label="Download prompt.json",
-                data=json.dumps({
-                    "title": st.session_state.get("pb_title", "App SRS"),
-                    "prompt": st.session_state.pb_final_srs,
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                }, indent=2),
-                file_name="prompt.json",
-                mime="application/json",
+                label="Download prompt.txt",
+                data=st.session_state.pb_final_srs,
+                file_name=f"{st.session_state.get('pb_title', 'App SRS').replace(' ', '_')}.txt",
+                mime="text/plain",
                 key="pb_download"
             )
         with col2:
