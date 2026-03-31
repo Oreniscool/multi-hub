@@ -575,7 +575,17 @@ def _generate_srs_from_chat(chat: list, api_key: str):
         transcript.append(f"{prefix}: {msg.get('content','')}")
     transcript_text = "\n".join(transcript)
     prompt = f"""
-You are an expert product engineer. Using the conversation below, produce a concise, implementable Software Requirements Specification for an app builder. The output must be directly usable as a build prompt.
+IMPORTANT — MANDATORY TECHNICAL REQUIREMENTS:
+The following technical requirements are MANDATORY and MUST be strictly followed for this application:
+- Database Technology: MUST use Supabase (PostgreSQL) as the primary database. For vector storage, MUST use pgvector extension within Supabase. NO other database solutions are permitted.
+- Framework: MUST use Gradio as the primary UI framework.
+- Environment: MUST be designed for Google Cloud environment (Google Cloud Storage, Google Cloud Functions, etc. where applicable).
+- Deployment: Hugging Face Spaces
+- Backend: Python with specified dependencies only
+
+---
+
+You are an expert product engineer. Using the conversation below, produce a concise, implementable Software Requirements Specification. The output must be directly usable as a build prompt.
 
 Required sections (use the exact order and headers):
 1) Product Summary
@@ -589,28 +599,9 @@ Required sections (use the exact order and headers):
 9) Critical Flows (step-by-step)
 10) Edge Cases & Constraints
 11) Acceptance Criteria
-12) Required Implementation Files
+12) Implementation Notes
 
-For section 12, instruct the agent to always generate EXACTLY these four files as the core deliverables:
-
-FILE 1 — requirements.txt
-  List every Python dependency needed. Always include: gradio, huggingface_hub.
-
-FILE 2 — app.py
-  Main Gradio application containing all UI and business logic. Use gr.Blocks() or gr.Interface() as the primary entry point. All UI components must be Gradio components (gr.Textbox, gr.Button, gr.Dataframe, gr.Plot, gr.Markdown, gr.Tab, etc.). Do NOT use Streamlit.
-
-FILE 3 — appscript.gs
-  Google Apps Script file for any Google Workspace integrations (Sheets, Drive, Gmail, Calendar, etc.).
-  If the app requires no Google Workspace integration, include a minimal stub that explains this.
-
-FILE 4 — deploy.py (include this verbatim; only customise repo_id with the app name):
-```python
-{_DEPLOY_PY_TEMPLATE}
-```
-
-End section 12 with the following closing instruction to the agent (include it verbatim):
-"After the app is fully built and tested, the final message to the user must be:
-  'Your app is ready. Type  run deploy.py  to host it on Hugging Face.'"
+For section 12 (Implementation Notes), provide any additional technical considerations, architectural decisions, or important notes for the development team.
 
 Conversation:
 {transcript_text}
@@ -668,7 +659,65 @@ def run_hub_code(file_path):
 # MAIN CONTENT AREA
 # ─────────────────────────────────────────────────────────────────────────────
 
-if st.session_state.current_view == 'example' and st.session_state.selected_example:
+# Check if user is logged in - mandatory login before accessing any features
+if not st.session_state.user_email:
+    # ── Login Page (Mandatory) ──
+    st.markdown('<div class="main-title">🔐 Login Required</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-subtitle">Sign in with Google to access the Prompt Builder and all features</div>', unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        st.markdown("### Why sign in?")
+        st.markdown("""
+        - 📊 Save your prompts to Google Sheets
+        - 💾 Access your history
+        - 🔗 Manage all your app projects
+        - 🔐 Secure authentication
+        """)
+    
+    with col2:
+        st.markdown("### Get started")
+        
+        flow, err = _init_oauth_flow()
+        if err:
+            st.error("OAuth not configured. Please check your environment variables.")
+            with st.expander("Setup Instructions"):
+                st.code("GOOGLE_OAUTH_CLIENT_ID=your_id\nGOOGLE_OAUTH_CLIENT_SECRET=your_secret\nOAUTH_REDIRECT_URI=http://localhost:8501")
+        else:
+            auth_url, _ = flow.authorization_url(prompt='consent')
+            st.markdown(f"""
+            <a href="{auth_url}" target="_self">
+                <button style="
+                    background-color: #4285F4;
+                    color: white;
+                    padding: 12px 24px;
+                    font-size: 16px;
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    width: 100%;
+                    font-weight: bold;
+                ">
+                    🔗 Sign in with Google
+                </button>
+            </a>
+            """, unsafe_allow_html=True)
+        
+        # Handle OAuth callback on login page
+        callback_result, callback_err = _handle_oauth_callback()
+        if callback_err:
+            st.error(f"Login error: {callback_err}")
+        elif callback_result:
+            if st.session_state.user_creds and st.session_state.user_email:
+                _save_credentials_to_cache(st.session_state.user_creds, st.session_state.user_email)
+            st.success(f"✅ Logged in as {st.session_state.user_email}")
+            st.rerun()
+    
+    st.stop()  # Stop execution - don't show any other content until logged in
+
+elif st.session_state.current_view == 'example' and st.session_state.selected_example:
     # ── Example project view ──
     proj = EXAMPLE_PROJECTS[st.session_state.selected_example]
     st.caption(f"📂 Example Project  ›  {proj['icon']} {st.session_state.selected_example}")
@@ -711,16 +760,6 @@ else:
         """,
         unsafe_allow_html=True,
     )
-
-    # Handle OAuth callback
-    callback_result, callback_err = _handle_oauth_callback()
-    if callback_err:
-        st.error(callback_err)
-    elif callback_result:
-        if st.session_state.user_creds and st.session_state.user_email:
-            _save_credentials_to_cache(st.session_state.user_creds, st.session_state.user_email)
-        st.success(f"Logged in as {st.session_state.user_email}")
-        st.rerun()
 
     # ── Chat section ──
     st.markdown('<div class="section-header">💬 Conversation</div>', unsafe_allow_html=True)
@@ -811,12 +850,24 @@ else:
     if st.session_state.get("pb_final_srs"):
         st.markdown('<hr class="styled-divider">', unsafe_allow_html=True)
         st.markdown(
-            '<div class="section-header">📋 Gradio SRS Prompt</div>'
-            '<div class="srs-copy-hint">Use the copy icon (⧉) in the top-right corner of the code block to copy the full prompt.</div>',
+            '<div class="section-header">📋 Gradio SRS Prompt</div>',
             unsafe_allow_html=True
         )
+
+        # Toggle between rendered and raw view
+        view_mode = st.radio(
+            "View mode:",
+            ["Rendered (Markdown)", "Raw (Copy-able)"],
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+
         st.markdown('<div class="srs-output-wrap">', unsafe_allow_html=True)
-        st.code(st.session_state.pb_final_srs, language=None)
+        if view_mode == "Rendered (Markdown)":
+            st.markdown(st.session_state.pb_final_srs)
+        else:
+            st.markdown('<div class="srs-copy-hint">Use the copy icon (⧉) in the top-right corner of the code block to copy the full prompt.</div>', unsafe_allow_html=True)
+            st.code(st.session_state.pb_final_srs, language=None)
         st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown("")
