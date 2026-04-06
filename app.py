@@ -515,19 +515,75 @@ def _chat_reply(user_msg: str, history: list, api_key: str):
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(PROMPT_MODEL)
-        system_prompt = (
-            "You are a concise, formal product analyst helping draft an app SRS. "
-            "Keep replies short (2-4 sentences max). Ask only targeted questions. "
-            "Focus on: app goal, target users, platform, key flows, data captured, preferred database, integrations, auth/compliance, scale/timeline. "
-            "Do not draft the SRS or long summaries until the user explicitly requests generation."
-        )
-        messages = [{"role": "user", "parts": [system_prompt]}]
+        transcript = []
         for h in history:
-            role = "user" if h["role"] == "user" else "model"
-            messages.append({"role": role, "parts": [h["content"]]})
-        messages.append({"role": "user", "parts": [user_msg]})
-        resp = model.generate_content(messages)
-        return resp.text, None
+            role = "User" if h["role"] == "user" else "Assistant"
+            transcript.append(f"{role}: {h['content']}")
+        transcript.append(f"User: {user_msg}")
+        transcript_text = "\n".join(transcript)
+
+        planner_prompt = f"""
+You are Agent Planner in a collaborative multi-agent system.
+Extract requirement signals and identify information gaps from the conversation.
+
+Return strict JSON with this schema:
+{{
+  "known_requirements": ["..."],
+  "missing_dimensions": ["..."],
+  "risk_flags": ["..."],
+  "priority_question": "one high-value question",
+  "question_goal": "what this question unlocks"
+}}
+
+Conversation:
+{transcript_text}
+"""
+        planner_resp = model.generate_content(planner_prompt)
+        planner_text = (planner_resp.text or "").strip()
+
+        critic_prompt = f"""
+You are Agent Critic in a collaborative multi-agent system.
+Review the Planner output and improve the next question quality.
+Make sure the next question is specific, practical, and non-redundant.
+
+Return strict JSON with this schema:
+{{
+  "improved_question": "one precise question",
+  "why_best_next": "brief reason",
+  "micro_probes": ["optional short probe", "optional short probe"]
+}}
+
+Planner JSON:
+{planner_text}
+
+Conversation:
+{transcript_text}
+"""
+        critic_resp = model.generate_content(critic_prompt)
+        critic_text = (critic_resp.text or "").strip()
+
+        interviewer_prompt = f"""
+You are Agent Interviewer in a collaborative multi-agent system.
+Use the planner and critic outputs to produce the user-facing response.
+
+Response rules:
+- Keep to 2-4 concise sentences.
+- Start with a one-sentence understanding summary.
+- Ask exactly one primary question.
+- Optionally add one short line with 1-2 concrete examples to help the user answer.
+- Do not generate the final SRS yet.
+
+Planner JSON:
+{planner_text}
+
+Critic JSON:
+{critic_text}
+
+Conversation:
+{transcript_text}
+"""
+        interviewer_resp = model.generate_content(interviewer_prompt)
+        return interviewer_resp.text, None
     except Exception as exc:
         return None, f"Gemini error: {exc}"
 
@@ -575,33 +631,61 @@ def _generate_srs_from_chat(chat: list, api_key: str):
         transcript.append(f"{prefix}: {msg.get('content','')}")
     transcript_text = "\n".join(transcript)
     prompt = f"""
-IMPORTANT — MANDATORY TECHNICAL REQUIREMENTS:
-The following technical requirements are MANDATORY and MUST be strictly followed for this application:
-- Database Technology: MUST use Supabase (PostgreSQL) as the primary database. For vector storage, MUST use pgvector extension within Supabase. NO other database solutions are permitted.
-- Framework: MUST use Gradio as the primary UI framework.
-- Environment: MUST be designed for Google Cloud environment (Google Cloud Storage, Google Cloud Functions, etc. where applicable).
-- Deployment: Hugging Face Spaces
-- Backend: Python with specified dependencies only
+IMPORTANT — MANDATORY GENERATION REQUIREMENTS:
+Use the conversation to generate an implementation-ready SRS/build prompt that strictly enforces ALL constraints below:
 
----
+1) File Count Constraint
+- Exactly 4 files total must be generated.
+- Mandatory files: app.py, tools.py, agents.py.
+- Include one additional file only when required for execution/setup.
 
-You are an expert product engineer. Using the conversation below, produce a concise, implementable Software Requirements Specification. The output must be directly usable as a build prompt.
+2) app.py Constraint
+- app.py must contain the full application entrypoint and runtime wiring.
+- Must use FastAPI for the web app layer and expose chat endpoints.
 
-Required sections (use the exact order and headers):
+3) tools.py Constraint
+- tools.py must contain all LangChain tools.
+- Use library-provided tools where available.
+- When unavailable, define custom tools using decorators/runnable tool patterns.
+- Do not use if/else conditional statements for answer routing logic.
+
+4) agents.py Constraint
+- agents.py must contain minimalistic agent code built with LangChain + LangGraph.
+- Include explicit prompt instructions for each agent role.
+- Gemini must be configured as the primary reasoning LLM ("brain").
+- Agents must collaborate with each other and invoke a LangGraph chat interface.
+
+5) UI Constraint
+- UI must mirror Anthropic Claude-style chatbot interaction patterns (clean conversational layout, message bubbles, compact composer, and focused reading area).
+
+6) Conversation Intelligence Constraint
+- Chat agents must conduct a structured Q&A flow to collect complete user requirements before final answers.
+- Agents must ask targeted follow-up questions for missing details.
+
+7) Logic Constraint
+- Avoid conditional branching instructions for response generation behavior.
+- Prefer declarative orchestration through graph/state transitions and tool invocation patterns.
+
+Now produce a concise, implementable SRS with the exact sections below:
 1) Product Summary
 2) Primary Users & Roles
 3) Core Use Cases
 4) Functional Requirements
-5) Non-Functional Requirements (performance, security, availability, compliance)
-6) Data Model (entities, key fields, relationships)
-7) Integrations & APIs
-8) Screens/Pages with key components
-9) Critical Flows (step-by-step)
-10) Edge Cases & Constraints
-11) Acceptance Criteria
-12) Implementation Notes
+5) Non-Functional Requirements
+6) Agent Architecture (roles, collaboration, LangGraph flow)
+7) Tooling Architecture (LangChain tools and custom decorators)
+8) API Design (FastAPI routes and contracts)
+9) UI/UX Specification (Claude-style chat layout and behavior)
+10) Project File Plan (exactly 4 files with responsibilities)
+11) Critical Q&A Collection Strategy
+12) Acceptance Criteria
 
-For section 12 (Implementation Notes), provide any additional technical considerations, architectural decisions, or important notes for the development team.
+In section 6 and section 11, explicitly define a multi-agent loop with at least these roles:
+- Planner Agent: extracts known requirements and missing dimensions.
+- Critic Agent: improves the next best question quality.
+- Interviewer Agent: asks one high-value question to the user.
+
+The loop must run iteratively across turns until requirement completeness is reached.
 
 Conversation:
 {transcript_text}
