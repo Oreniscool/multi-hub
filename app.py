@@ -2,6 +2,7 @@ import streamlit as st
 import sys
 import os
 import json
+import re
 import requests
 import gspread
 import google.generativeai as genai
@@ -51,6 +52,25 @@ st.session_state.setdefault('user_name', None)
 st.session_state.setdefault('user_sheet_id', None)
 st.session_state.setdefault('current_view', 'prompt_builder')
 st.session_state.setdefault('selected_example', None)
+
+
+def _safe_parse_json(raw_text: str):
+    """Parse model JSON responses that may be wrapped in markdown fences."""
+    if not raw_text:
+        return {}
+    text = raw_text.strip()
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, flags=re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1))
+        except Exception:
+            return {}
+    return {}
 
 # OAuth and credential helper functions
 def _get_user_info(creds):
@@ -511,7 +531,7 @@ with st.sidebar:
 
 def _chat_reply(user_msg: str, history: list, api_key: str):
     if not api_key:
-        return None, "Provide a Gemini API key in the sidebar."
+        return None, None, "Provide a Gemini API key in the sidebar."
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(PROMPT_MODEL)
@@ -540,6 +560,7 @@ Conversation:
 """
         planner_resp = model.generate_content(planner_prompt)
         planner_text = (planner_resp.text or "").strip()
+        planner_data = _safe_parse_json(planner_text)
 
         critic_prompt = f"""
 You are Agent Critic in a collaborative multi-agent system.
@@ -561,6 +582,7 @@ Conversation:
 """
         critic_resp = model.generate_content(critic_prompt)
         critic_text = (critic_resp.text or "").strip()
+        critic_data = _safe_parse_json(critic_text)
 
         interviewer_prompt = f"""
 You are Agent Interviewer in a collaborative multi-agent system.
@@ -583,9 +605,21 @@ Conversation:
 {transcript_text}
 """
         interviewer_resp = model.generate_content(interviewer_prompt)
-        return interviewer_resp.text, None
+        agent_trace = {
+            "planner": {
+                "known_requirements": planner_data.get("known_requirements", []),
+                "missing_dimensions": planner_data.get("missing_dimensions", []),
+                "risk_flags": planner_data.get("risk_flags", []),
+            },
+            "critic": {
+                "improved_question": critic_data.get("improved_question", ""),
+                "why_best_next": critic_data.get("why_best_next", ""),
+                "micro_probes": critic_data.get("micro_probes", []),
+            },
+        }
+        return interviewer_resp.text, agent_trace, None
     except Exception as exc:
-        return None, f"Gemini error: {exc}"
+        return None, None, f"Gemini error: {exc}"
 
 
 _DEPLOY_PY_TEMPLATE = """\
@@ -816,6 +850,7 @@ else:
     # ── Prompt Builder (default / main view) ──
     st.markdown('<div class="main-title">🎨 Prompt Builder</div>', unsafe_allow_html=True)
     st.markdown('<div class="main-subtitle">One conversation to define your app — generate a Gradio SRS and ship it.</div>', unsafe_allow_html=True)
+    st.caption("🧠 Agent Mode: Planner → Critic → Interviewer loop is active every turn.")
 
     # Step-flow banner
     st.markdown(
@@ -862,6 +897,25 @@ else:
         st.caption(f"**{current_count}** / {MAX_EXCHANGES}")
     st.markdown('</div>', unsafe_allow_html=True)
 
+    latest_trace = None
+    for msg in reversed(st.session_state.pb_chat):
+        if msg.get("role") == "assistant" and msg.get("agent_trace"):
+            latest_trace = msg.get("agent_trace")
+            break
+
+    if latest_trace:
+        planner = latest_trace.get("planner", {})
+        critic = latest_trace.get("critic", {})
+        known_count = len(planner.get("known_requirements", []))
+        missing_count = len(planner.get("missing_dimensions", []))
+        risk_count = len(planner.get("risk_flags", []))
+        col_a, col_b, col_c = st.columns(3)
+        col_a.metric("✅ Known requirements", known_count)
+        col_b.metric("❓ Open dimensions", missing_count)
+        col_c.metric("⚠️ Risk flags", risk_count)
+        if critic.get("improved_question"):
+            st.info(f"**Next best question:** {critic.get('improved_question')}")
+
     if current_count >= MAX_EXCHANGES:
         st.markdown('<div class="hint-callout">✅ 10 exchanges complete — you\'re ready to generate your Gradio SRS below.</div>', unsafe_allow_html=True)
     elif current_count >= 7:
@@ -882,6 +936,26 @@ else:
             expanded=False
         ):
             st.markdown(content)
+            if role == "assistant" and msg.get("agent_trace"):
+                trace = msg.get("agent_trace", {})
+                planner = trace.get("planner", {})
+                critic = trace.get("critic", {})
+                st.markdown("---")
+                st.caption("Agent activity")
+                if planner.get("known_requirements"):
+                    st.markdown("**Planner captured:**")
+                    for item in planner.get("known_requirements", [])[:5]:
+                        st.markdown(f"- {item}")
+                if planner.get("missing_dimensions"):
+                    st.markdown("**Planner still missing:**")
+                    for item in planner.get("missing_dimensions", [])[:5]:
+                        st.markdown(f"- {item}")
+                if critic.get("why_best_next"):
+                    st.markdown(f"**Critic rationale:** {critic.get('why_best_next')}")
+                if critic.get("micro_probes"):
+                    st.markdown("**Optional micro-probes:**")
+                    for probe in critic.get("micro_probes", [])[:3]:
+                        st.markdown(f"- {probe}")
 
     chat_disabled = current_count >= MAX_EXCHANGES
     chat_placeholder = "Limit reached \u2014 scroll down to generate your Gradio SRS." if chat_disabled else "Describe your app: goal, target users, platform, data, DB, auth, integrations\u2026"
@@ -889,12 +963,16 @@ else:
     user_chat = st.chat_input(chat_placeholder, disabled=chat_disabled)
     if user_chat:
         st.session_state.pb_chat.append({"role": "user", "content": user_chat})
-        reply, err = _chat_reply(user_chat, st.session_state.pb_chat[:-1], st.session_state.get("api_key", ""))
+        reply, agent_trace, err = _chat_reply(user_chat, st.session_state.pb_chat[:-1], st.session_state.get("api_key", ""))
         if err:
             st.error(err)
             st.session_state.pb_chat.pop()
         else:
-            st.session_state.pb_chat.append({"role": "assistant", "content": reply})
+            st.session_state.pb_chat.append({
+                "role": "assistant",
+                "content": reply,
+                "agent_trace": agent_trace or {}
+            })
             st.rerun()
 
     st.markdown('<hr class="styled-divider">', unsafe_allow_html=True)
