@@ -3,6 +3,7 @@ import sys
 import os
 import json
 import re
+import time
 import requests
 import gspread
 import google.generativeai as genai
@@ -52,6 +53,8 @@ st.session_state.setdefault('user_name', None)
 st.session_state.setdefault('user_sheet_id', None)
 st.session_state.setdefault('current_view', 'prompt_builder')
 st.session_state.setdefault('selected_example', None)
+st.session_state.setdefault('oauth_state', None)
+st.session_state.setdefault('oauth_code_verifier', None)
 
 
 def _safe_parse_json(raw_text: str):
@@ -138,25 +141,102 @@ def _init_oauth_flow():
         flow = Flow.from_client_config(
             client_config,
             scopes=SCOPES,
-            redirect_uri=OAUTH_REDIRECT_URI
+            redirect_uri=OAUTH_REDIRECT_URI,
+            autogenerate_code_verifier=True,
         )
         return flow, None
     except Exception as exc:
         return None, f"Failed to initialize OAuth: {exc}"
 
 
+def _query_param_value(query_params, key: str):
+    """Return a stable single value for Streamlit query params."""
+    value = query_params.get(key)
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
+def _is_oauth_callback_pending() -> bool:
+    """Return True when browser is on OAuth redirect callback URL."""
+    return bool(_query_param_value(st.query_params, 'code'))
+
+
+def _build_auth_url():
+    """Create OAuth URL and persist PKCE/session data required for callback."""
+    flow, err = _init_oauth_flow()
+    if err:
+        return None, err
+
+    auth_url, state = flow.authorization_url(prompt='consent')
+    st.session_state.oauth_state = state
+    st.session_state.oauth_code_verifier = flow.code_verifier
+    _store_oauth_code_verifier(state, flow.code_verifier)
+    return auth_url, None
+
+
+@st.cache_resource
+def _oauth_pkce_store():
+    """Process-level PKCE cache for hosted redirects that lose session_state."""
+    return {}
+
+
+def _store_oauth_code_verifier(state: str, code_verifier: str):
+    """Persist verifier with short TTL to survive callback session handoff."""
+    if not state or not code_verifier:
+        return
+    store = _oauth_pkce_store()
+    now = time.time()
+    ttl_seconds = 15 * 60
+
+    # Keep store bounded and remove stale verifier entries.
+    expired = [k for k, v in store.items() if now - v.get('created_at', 0) > ttl_seconds]
+    for key in expired:
+        store.pop(key, None)
+
+    store[state] = {
+        'code_verifier': code_verifier,
+        'created_at': now,
+    }
+
+
+def _take_oauth_code_verifier(state: str):
+    """Return and remove verifier from process-level store."""
+    if not state:
+        return None
+    store = _oauth_pkce_store()
+    data = store.pop(state, None)
+    if not data:
+        return None
+    return data.get('code_verifier')
+
+
 def _handle_oauth_callback():
     """Handle OAuth callback and exchange code for credentials"""
     # Check if we have an authorization code in query params
     query_params = st.query_params
-    if 'code' in query_params:
+    code = _query_param_value(query_params, 'code')
+    if code:
         flow, err = _init_oauth_flow()
         if err:
             return None, err
         
         try:
+            callback_state = _query_param_value(query_params, 'state')
+            expected_state = st.session_state.get('oauth_state')
+            if expected_state and callback_state != expected_state:
+                return None, "OAuth callback error: state mismatch. Please retry login."
+
+            code_verifier = st.session_state.get('oauth_code_verifier')
+            if not code_verifier:
+                code_verifier = _take_oauth_code_verifier(callback_state)
+            if not code_verifier:
+                return None, "OAuth callback error: missing PKCE verifier in session. Please retry login."
+
+            flow.code_verifier = code_verifier
+
             # Exchange code for credentials
-            flow.fetch_token(code=query_params['code'])
+            flow.fetch_token(code=code)
             creds = flow.credentials
             
             # Store credentials in session
@@ -179,6 +259,8 @@ def _handle_oauth_callback():
             
             # Clear the code from URL
             st.query_params.clear()
+            st.session_state.oauth_state = None
+            st.session_state.oauth_code_verifier = None
             
             return True, None
         except Exception as exc:
@@ -484,14 +566,16 @@ with st.sidebar:
     else:
         st.info("Login to save prompts")
         
-        flow, err = _init_oauth_flow()
-        if err:
-            st.error("OAuth not configured")
-            with st.expander("Setup Instructions"):
-                st.code("GOOGLE_OAUTH_CLIENT_ID=your_id\nGOOGLE_OAUTH_CLIENT_SECRET=your_secret\nOAUTH_REDIRECT_URI=http://localhost:8501")
+        if _is_oauth_callback_pending():
+            st.caption("Completing login...")
         else:
-            auth_url, _ = flow.authorization_url(prompt='consent')
-            st.markdown(f"[🔗 Login with Google]({auth_url})")
+            auth_url, err = _build_auth_url()
+            if err:
+                st.error("OAuth not configured")
+                with st.expander("Setup Instructions"):
+                    st.code("GOOGLE_OAUTH_CLIENT_ID=your_id\nGOOGLE_OAUTH_CLIENT_SECRET=your_secret\nOAUTH_REDIRECT_URI=http://localhost:8501")
+            else:
+                st.markdown(f"[🔗 Login with Google]({auth_url})")
 
     st.markdown("---")
 
@@ -779,6 +863,15 @@ def run_hub_code(file_path):
 
 # Check if user is logged in - mandatory login before accessing any features
 if not st.session_state.user_email:
+    callback_result, callback_err = _handle_oauth_callback() if _is_oauth_callback_pending() else (False, None)
+    if callback_err:
+        st.error(f"Login error: {callback_err}")
+    elif callback_result:
+        if st.session_state.user_creds and st.session_state.user_email:
+            _save_credentials_to_cache(st.session_state.user_creds, st.session_state.user_email)
+        st.success(f"✅ Logged in as {st.session_state.user_email}")
+        st.rerun()
+
     # ── Login Page (Mandatory) ──
     st.markdown('<div class="main-title">🔐 Login Required</div>', unsafe_allow_html=True)
     st.markdown('<div class="main-subtitle">Sign in with Google to access the Prompt Builder and all features</div>', unsafe_allow_html=True)
@@ -798,40 +891,32 @@ if not st.session_state.user_email:
     with col2:
         st.markdown("### Get started")
         
-        flow, err = _init_oauth_flow()
-        if err:
-            st.error("OAuth not configured. Please check your environment variables.")
-            with st.expander("Setup Instructions"):
-                st.code("GOOGLE_OAUTH_CLIENT_ID=your_id\nGOOGLE_OAUTH_CLIENT_SECRET=your_secret\nOAUTH_REDIRECT_URI=http://localhost:8501")
+        if _is_oauth_callback_pending():
+            st.info("Completing login...")
         else:
-            auth_url, _ = flow.authorization_url(prompt='consent')
-            st.markdown(f"""
-            <a href="{auth_url}" target="_self">
-                <button style="
-                    background-color: #4285F4;
-                    color: white;
-                    padding: 12px 24px;
-                    font-size: 16px;
-                    border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    width: 100%;
-                    font-weight: bold;
-                ">
-                    🔗 Sign in with Google
-                </button>
-            </a>
-            """, unsafe_allow_html=True)
-        
-        # Handle OAuth callback on login page
-        callback_result, callback_err = _handle_oauth_callback()
-        if callback_err:
-            st.error(f"Login error: {callback_err}")
-        elif callback_result:
-            if st.session_state.user_creds and st.session_state.user_email:
-                _save_credentials_to_cache(st.session_state.user_creds, st.session_state.user_email)
-            st.success(f"✅ Logged in as {st.session_state.user_email}")
-            st.rerun()
+            auth_url, err = _build_auth_url()
+            if err:
+                st.error("OAuth not configured. Please check your environment variables.")
+                with st.expander("Setup Instructions"):
+                    st.code("GOOGLE_OAUTH_CLIENT_ID=your_id\nGOOGLE_OAUTH_CLIENT_SECRET=your_secret\nOAUTH_REDIRECT_URI=http://localhost:8501")
+            else:
+                st.markdown(f"""
+                <a href="{auth_url}" target="_self">
+                    <button style="
+                        background-color: #4285F4;
+                        color: white;
+                        padding: 12px 24px;
+                        font-size: 16px;
+                        border: none;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        width: 100%;
+                        font-weight: bold;
+                    ">
+                        🔗 Sign in with Google
+                    </button>
+                </a>
+                """, unsafe_allow_html=True)
     
     st.stop()  # Stop execution - don't show any other content until logged in
 
