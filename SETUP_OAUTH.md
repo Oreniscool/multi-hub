@@ -1,6 +1,6 @@
 # Google OAuth Setup Guide
 
-This guide will help you set up Google OAuth authentication for the PromptBuilder feature.
+This guide will help you set up Google OAuth authentication for the Prompt Builder feature.
 
 ## Prerequisites
 
@@ -51,7 +51,9 @@ This guide will help you set up Google OAuth authentication for the PromptBuilde
 Create a `.env` file in your project root or set these environment variables:
 
 ```bash
-
+GOOGLE_OAUTH_CLIENT_ID=your_google_oauth_client_id
+GOOGLE_OAUTH_CLIENT_SECRET=your_google_oauth_client_secret
+OAUTH_REDIRECT_URI=http://localhost:8501
 ```
 
 For production deployment, update `OAUTH_REDIRECT_URI` to match your production URL.
@@ -70,7 +72,7 @@ streamlit run app.py
 
 ## How It Works
 
-1. **User Login**: When users visit the PromptBuilder, they click "Login with Google"
+1. **User Login**: When users visit the Prompt Builder, they click "Login with Google"
 2. **OAuth Flow**: They're redirected to Google to authorize the app
 3. **Sheet Creation**: After authorization, a personal Google Sheet is created/accessed named "Prompts - {user_email}"
 4. **Save Prompts**: All prompts are saved to the user's personal sheet

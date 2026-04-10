@@ -33,7 +33,14 @@ streamlit run app.py
 
 ### Prompt Builder
 
-The Prompt Builder now runs inside Streamlit with optional Google Sheets logging. Set `google_service_account` (Streamlit secrets) or `GOOGLE_SHEETS_CREDS` (env var) with your service account JSON to enable saves.
+The Prompt Builder now runs inside this Streamlit app using a modular architecture:
+
+- `app.py` for UI orchestration
+- `agents.py` for Planner/Critic/Interviewer flow
+- `tools.py` for OAuth, persistence, and runtime helpers
+- `prompts.py` for the prompt library
+
+To enable login + Google Sheets saves, configure OAuth environment variables (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `OAUTH_REDIRECT_URI`).
 
 ## Deploy to Streamlit Community Cloud
 
@@ -46,6 +53,9 @@ The Prompt Builder now runs inside Streamlit with optional Google Sheets logging
 
 ```
 app.py
+agents.py
+tools.py
+prompts.py
 requirements.txt
 CaseHub/
 ClassificationHub/
@@ -57,8 +67,3 @@ VectorisationHub/
 ```
 
 Each hub folder retains its original Streamlit application files. The dashboard dynamically loads the selected hub while sharing a single Streamlit session.
-
-### Prompt Builder (Next.js) inside MultiHub
-
-- The radio menu now includes **PromptBuilder**; selecting it embeds the Next.js prompt builder via iframe.
-- Configure the target URL with `PROMPT_BUILDER_URL` (defaults to `http://localhost:3000`).
