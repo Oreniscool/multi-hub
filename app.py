@@ -206,20 +206,34 @@ st.caption("🧠 Agent Mode: Planner -> Critic -> Interviewer loop is active eve
 
 st.markdown("### Workflow")
 st.markdown(
-        """
-```text
-[1] Add Gemini API Key (sidebar)
-                        |
-                        v
-[2] Describe app goals and constraints in chat
-                        |
-                        v
-[3] Answer follow-up questions from agents
-                        |
-                        v
-[4] Generate SRS and save/export to build
-```
-"""
+    """
+    <div class="hero-banner">
+        <div class="hero-step">
+            <div class="hero-step-num">🔑</div>
+            <div style="font-weight: 600; margin-bottom: 0.2rem;">Add Key</div>
+            <div class="hero-step-label">Add Gemini API Key</div>
+        </div>
+        <div class="hero-step-arrow">➔</div>
+        <div class="hero-step">
+            <div class="hero-step-num">🎯</div>
+            <div style="font-weight: 600; margin-bottom: 0.2rem;">Describe App</div>
+            <div class="hero-step-label">Set goals & constraints</div>
+        </div>
+        <div class="hero-step-arrow">➔</div>
+        <div class="hero-step">
+            <div class="hero-step-num">🤖</div>
+            <div style="font-weight: 600; margin-bottom: 0.2rem;">Answer Qs</div>
+            <div class="hero-step-label">Reply to agents</div>
+        </div>
+        <div class="hero-step-arrow">➔</div>
+        <div class="hero-step">
+            <div class="hero-step-num">📝</div>
+            <div style="font-weight: 600; margin-bottom: 0.2rem;">Generate</div>
+            <div class="hero-step-label">Save/export SRS</div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
 st.markdown('<div class="section-header">💬 Conversation</div>', unsafe_allow_html=True)
@@ -273,34 +287,28 @@ elif current_count == 0:
 for msg in st.session_state.pb_chat:
     role = msg["role"]
     content = msg["content"]
-    preview = content[:120] + "…" if len(content) > 120 else content
-    label_text = "You" if role == "user" else "Assistant"
-
-    with st.expander(
-        f"{'👤' if role == 'user' else '🤖'}  {label_text} - {preview}",
-        expanded=False,
-    ):
+    
+    with st.chat_message(role):
         st.markdown(content)
         if role == "assistant" and msg.get("agent_trace"):
-            trace = msg.get("agent_trace", {})
-            planner = trace.get("planner", {})
-            critic = trace.get("critic", {})
-            st.markdown("---")
-            st.caption("Agent activity")
-            if planner.get("known_requirements"):
-                st.markdown("**Planner captured:**")
-                for item in planner.get("known_requirements", [])[:5]:
-                    st.markdown(f"- {item}")
-            if planner.get("missing_dimensions"):
-                st.markdown("**Planner still missing:**")
-                for item in planner.get("missing_dimensions", [])[:5]:
-                    st.markdown(f"- {item}")
-            if critic.get("why_best_next"):
-                st.markdown(f"**Critic rationale:** {critic.get('why_best_next')}")
-            if critic.get("micro_probes"):
-                st.markdown("**Optional micro-probes:**")
-                for probe in critic.get("micro_probes", [])[:3]:
-                    st.markdown(f"- {probe}")
+            with st.expander("🔍 Agent Activity", expanded=False):
+                trace = msg.get("agent_trace", {})
+                planner = trace.get("planner", {})
+                critic = trace.get("critic", {})
+                if planner.get("known_requirements"):
+                    st.markdown("**Planner captured:**")
+                    for item in planner.get("known_requirements", [])[:5]:
+                        st.markdown(f"- {item}")
+                if planner.get("missing_dimensions"):
+                    st.markdown("**Planner still missing:**")
+                    for item in planner.get("missing_dimensions", [])[:5]:
+                        st.markdown(f"- {item}")
+                if critic.get("why_best_next"):
+                    st.markdown(f"**Critic rationale:** {critic.get('why_best_next')}")
+                if critic.get("micro_probes"):
+                    st.markdown("**Optional micro-probes:**")
+                    for probe in critic.get("micro_probes", [])[:3]:
+                        st.markdown(f"- {probe}")
 
 chat_disabled = current_count >= MAX_EXCHANGES
 chat_placeholder = (
