@@ -320,11 +320,32 @@ chat_placeholder = (
 user_chat = st.chat_input(chat_placeholder, disabled=chat_disabled)
 if user_chat:
     st.session_state.pb_chat.append({"role": "user", "content": user_chat})
-    reply, agent_trace, err = agents.chat_reply(
-        user_chat,
-        st.session_state.pb_chat[:-1],
-        st.session_state.get("api_key", ""),
-    )
+    with st.chat_message("user"):
+        st.markdown(user_chat)
+        
+    with st.chat_message("assistant"):
+        with st.status("Agents working...", expanded=True) as status:
+            def update_status(node):
+                if node == "planner":
+                    status.write("🧠 Planner is analyzing requirements...")
+                elif node == "critic":
+                    status.write("⚖️ Critic is evaluating the plan...")
+                elif node == "interviewer":
+                    status.write("🗣️ Interviewer is formulating the question...")
+                elif node == "orchestrator":
+                    pass
+
+            reply, agent_trace, err = agents.chat_reply(
+                user_chat,
+                st.session_state.pb_chat[:-1],
+                st.session_state.get("api_key", ""),
+                status_callback=update_status
+            )
+            if not err:
+                status.update(label="Response ready!", state="complete", expanded=False)
+            else:
+                status.update(label="Error occurred", state="error", expanded=False)
+
     if err:
         st.error(err)
         st.session_state.pb_chat.pop()

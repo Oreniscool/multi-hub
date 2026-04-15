@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import Any, Dict, List, Literal, Optional, TypedDict, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, TypedDict, Tuple
 
 import google.generativeai as genai
 from langgraph.graph import END, START, StateGraph
@@ -154,6 +154,7 @@ class PromptBuilderAgents:
         user_msg: str,
         history: List[Dict[str, str]],
         api_key: str,
+        status_callback: Optional[Callable] = None,
     ) -> Tuple[Optional[str], Optional[Dict], Optional[str]]:
         if not api_key:
             return None, None, "Provide a Gemini API key in the sidebar."
@@ -162,16 +163,19 @@ class PromptBuilderAgents:
         transcript_text = format_transcript(transcript)
 
         try:
-            result = self.graph.invoke(
-                {
-                    "mode": "chat",
-                    "api_key": api_key,
-                    "transcript_text": transcript_text,
-                }
-            )
+            final_state = {
+                "mode": "chat",
+                "api_key": api_key,
+                "transcript_text": transcript_text,
+            }
+            for event in self.graph.stream(final_state):
+                for node_name, state_update in event.items():
+                    if status_callback:
+                        status_callback(node_name)
+                    final_state.update(state_update)
 
-            planner_data = result.get("planner_data", {})
-            critic_data = result.get("critic_data", {})
+            planner_data = final_state.get("planner_data", {})
+            critic_data = final_state.get("critic_data", {})
 
             agent_trace = {
                 "planner": {
@@ -185,7 +189,7 @@ class PromptBuilderAgents:
                     "micro_probes": critic_data.get("micro_probes", []),
                 },
             }
-            return result.get("interviewer_text", ""), agent_trace, None
+            return final_state.get("interviewer_text", ""), agent_trace, None
         except Exception as exc:
             return None, None, f"Gemini error: {exc}"
 
