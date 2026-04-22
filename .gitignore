@@ -1,5 +1,39 @@
+# Environment and secrets
 .env
-__pycache__/
-*.py[cod]
+.env.*
+**/.env
+**/.env.*
+*.env
+*.secret
+*.secrets
+secrets.toml
+**/.streamlit/secrets.toml
+**/.streamlit/
+
+# Virtual environments
 .venv/
+venv/
+**/.venv/
+**/venv/
+
+# Python cache and build artifacts
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# IDE and OS local files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Existing local-only script ignore
+test_models.sh

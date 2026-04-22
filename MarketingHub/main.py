@@ -44,26 +44,11 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 def main():
-    # Set Default API Key - use session_state (no hardcoded keys)
-    if 'api_key' not in st.session_state:
-        st.session_state['api_key'] = ""
-
     # Sidebar
     st.sidebar.title("🚀 Marketing Hub")
-    
-    # API Key Input
-    with st.sidebar.expander("🔑 Global Settings", expanded=True):
-        api_key = st.text_input(
-            "Google API Key",
-            type="password",
-            value=st.session_state['api_key'],
-            help="Enter your Gemini API Key to enable content generation features.",
-            key="api_key_input"
-        )
-        # Update session state if user changes it
-        if api_key != st.session_state['api_key']:
-             st.session_state['api_key'] = api_key
-             st.success("API Key updated!")
+
+    with st.sidebar.expander("🤖 Model Settings", expanded=True):
+        st.caption("Using server-side Hugging Face Mistral configuration.")
 
     # Navigation using Sidebar Radio
     st.sidebar.markdown("---")
@@ -87,7 +72,7 @@ def render_home():
     st.markdown("""
     ### A centralized platform for modern marketers.
     
-    Leverage the power of **Google Gemini** for instant content creation and visualize your campaign success with our **Analytics Dashboard**.
+    Leverage the power of **Mistral on Hugging Face** for instant content creation and visualize your campaign success with our **Analytics Dashboard**.
     
     #### Quick Stats 📈
     """)

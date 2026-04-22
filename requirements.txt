@@ -4,7 +4,6 @@ pandas
 numpy
 plotly
 scikit-learn
-google-generativeai
 pypdf
 python-docx
 fpdf
@@ -21,3 +20,4 @@ langchain
 langchain-community
 langchain-core
 langgraph
+groq

@@ -8,23 +8,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# Set Default API Key via session state (like MarketingHub pattern)
-if 'api_key' not in st.session_state:
-    st.session_state['api_key'] = ""
-
 # Sidebar Configuration
 st.sidebar.title("Configuration")
-
-# API Key Management
-api_key_input = st.sidebar.text_input(
-    "Gemini API Key", 
-    type="password", 
-    help="Enter your Google Gemini API Key.",
-    value=st.session_state['api_key']
-)
-# Update session state when user provides key
-if api_key_input:
-    st.session_state['api_key'] = api_key_input
 
 st.sidebar.markdown("---")
 
@@ -56,23 +41,19 @@ st.title("📚 Case Study Hub")
 st.markdown("Generate structured business case studies tailored to your needs using AI.")
 
 if generate_btn:
-    if not api_key_input:
-        st.error("Please provide a Gemini API Key.")
-    else:
-        with st.spinner("Generating case study... This may take a moment."):
-            case_study_content = utils.generate_case_study(
-                api_key_input, 
-                industry, 
-                topic, 
-                difficulty, 
-                company_size
-            )
-            
-            if "Error" in case_study_content and len(case_study_content) < 200: # Simple error check
-                 st.error(case_study_content)
-            else:
-                st.session_state['generated_content'] = case_study_content
-                st.success("Case Study Generated Successfully!")
+    with st.spinner("Generating case study... This may take a moment."):
+        case_study_content = utils.generate_case_study(
+            industry,
+            topic,
+            difficulty,
+            company_size,
+        )
+
+        if "Error" in case_study_content and len(case_study_content) < 300:
+            st.error(case_study_content)
+        else:
+            st.session_state['generated_content'] = case_study_content
+            st.success("Case Study Generated Successfully!")
 
 # Display Results if available
 if 'generated_content' in st.session_state:

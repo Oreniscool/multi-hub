@@ -80,8 +80,8 @@ IMPORTANT - MANDATORY GENERATION REQUIREMENTS:
 Use the conversation to generate an implementation-ready SRS/build prompt that strictly enforces ALL constraints below:
 
 1) File Count Constraint
-- Exactly 5 files total must be generated.
-- Mandatory files: app.py, agents.py, tools.py, prompts.py, requirements.txt.
+- Exactly 8 files total must be generated.
+- Mandatory files: app.py, agents.py, tools.py, prompts.py, models.py, databases.py, vector_embeddings.py, requirements.txt.
 
 2) app.py Constraint
 - app.py must contain the full application entrypoint and runtime wiring.
@@ -90,17 +90,33 @@ Use the conversation to generate an implementation-ready SRS/build prompt that s
 3) agents.py Constraint
 - agents.py must contain minimalistic agent code built with model-driven prompting.
 - Include explicit prompt instructions for each agent role.
-- Gemini must be configured as the primary reasoning LLM.
+- Groq must be configured as the primary reasoning LLM.
 - Agents must collaborate in a Planner -> Critic -> Interviewer loop.
 
 4) tools.py Constraint
 - tools.py must contain helper utilities for OAuth, persistence, and runtime integrations.
 - Keep UI rendering logic thin in app.py.
 
-5) prompts.py Constraint
+5) models.py Constraint
+- models.py must contain the AI model configurations the application can use.
+- For now, Groq must be the only supported model provider/model family.
+- Do not include Mistral, OpenAI, Anthropic, Gemini, or any non-Groq model options.
+
+6) databases.py Constraint
+- databases.py must contain database connectivity, CRUD helpers, and repository/data-access functions.
+- Database backend must be limited to Supabase only.
+- Vector data storage/retrieval must use pgvector only (through Postgres/Supabase).
+- Keep direct database calls out of app.py and agent logic.
+
+7) vector_embeddings.py Constraint
+- vector_embeddings.py must contain embedding creation, vector index operations, and similarity search helpers.
+- Keep all vector store integration logic isolated in this file.
+- Restrict vector integration to pgvector-backed operations only.
+
+8) prompts.py Constraint
 - prompts.py must be a reusable prompt library where all prompt templates are defined.
 
-6) Conversation Intelligence Constraint
+9) Conversation Intelligence Constraint
 - Chat agents must conduct a structured Q&A flow to collect complete user requirements before final answers.
 - Agents must ask targeted follow-up questions for missing details.
 
@@ -114,7 +130,7 @@ Now produce a concise, implementable SRS with the exact sections below:
 7) Tooling Architecture (helpers and integrations)
 8) API/UI Design (interaction contracts)
 9) Prompt Library Specification
-10) Project File Plan (exactly 5 files with responsibilities)
+10) Project File Plan (exactly 8 files with responsibilities)
 11) Critical Q&A Collection Strategy
 12) Acceptance Criteria
 

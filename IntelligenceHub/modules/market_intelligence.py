@@ -1,5 +1,6 @@
 import streamlit as st
 import plotly.graph_objects as go
+import os
 from utils.data_handler import fetch_stock_data
 
 def show():
@@ -11,11 +12,17 @@ def show():
     with col1:
         st.subheader("Configuration")
         ticker = st.text_input("Stock Ticker", value="IBM").upper()
-        api_key = st.text_input("Alpha Vantage API Key", type="password")
+        api_key = os.getenv("ALPHA_VANTAGE_API_KEY", "").strip()
+        if api_key:
+            st.caption("Using server-side Alpha Vantage key from environment.")
+        else:
+            st.warning("ALPHA_VANTAGE_API_KEY is not configured in environment.")
         
         if st.button("Analyze Stock"):
-            if not ticker or not api_key:
-                st.error("Please provide both Ticker and API Key.")
+            if not ticker:
+                st.error("Please provide a ticker.")
+            elif not api_key:
+                st.error("ALPHA_VANTAGE_API_KEY is missing in environment.")
             else:
                 with st.spinner(f"Fetching data for {ticker}..."):
                     df, error = fetch_stock_data(ticker, api_key)

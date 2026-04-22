@@ -1,10 +1,11 @@
 """Agent orchestration for MultiHub prompt builder."""
 
 import json
+import os
 import re
 from typing import Any, Callable, Dict, List, Literal, Optional, TypedDict, Tuple
 
-import google.generativeai as genai
+from groq import Groq
 from langgraph.graph import END, START, StateGraph
 
 from prompts import (
@@ -18,7 +19,6 @@ from prompts import (
 
 class AgentState(TypedDict, total=False):
     mode: Literal["chat", "srs"]
-    api_key: str
     transcript_text: str
     next_node: str
     planner_text: str
@@ -52,16 +52,20 @@ def _safe_parse_json(raw_text: str) -> Dict:
 class PromptBuilderAgents:
     def __init__(self, model_name: str):
         self.model_name = model_name
+        self.groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
+        self.client = Groq(api_key=self.groq_api_key) if self.groq_api_key else None
         self.graph = self._build_orchestrator()
 
-    def _model(self, api_key: str):
-        genai.configure(api_key=api_key)
-        return genai.GenerativeModel(self.model_name)
+    def _generate(self, prompt_text: str) -> str:
+        if not self.client:
+            raise ValueError("AI backend is not configured on the server.")
 
-    def _generate(self, api_key: str, prompt_text: str) -> str:
-        model = self._model(api_key)
-        resp = model.generate_content(prompt_text)
-        return (resp.text or "").strip()
+        resp = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=[{"role": "user", "content": prompt_text}],
+            temperature=0.2,
+        )
+        return ((resp.choices[0].message.content or "") if resp.choices else "").strip()
 
     def _orchestrator(self, state: AgentState) -> AgentState:
         mode = state.get("mode")
@@ -83,7 +87,6 @@ class PromptBuilderAgents:
 
     def _planner_node(self, state: AgentState) -> AgentState:
         planner_text = self._generate(
-            state["api_key"],
             planner_prompt(state["transcript_text"]),
         )
         return {
@@ -93,7 +96,6 @@ class PromptBuilderAgents:
 
     def _critic_node(self, state: AgentState) -> AgentState:
         critic_text = self._generate(
-            state["api_key"],
             critic_prompt(state["transcript_text"], state.get("planner_text", "")),
         )
         return {
@@ -103,7 +105,6 @@ class PromptBuilderAgents:
 
     def _interviewer_node(self, state: AgentState) -> AgentState:
         interviewer_text = self._generate(
-            state["api_key"],
             interviewer_prompt(
                 state["transcript_text"],
                 state.get("planner_text", ""),
@@ -114,7 +115,6 @@ class PromptBuilderAgents:
 
     def _srs_node(self, state: AgentState) -> AgentState:
         srs_text = self._generate(
-            state["api_key"],
             srs_generation_prompt(state["transcript_text"]),
         )
         return {"srs_text": srs_text}
@@ -153,11 +153,10 @@ class PromptBuilderAgents:
         self,
         user_msg: str,
         history: List[Dict[str, str]],
-        api_key: str,
         status_callback: Optional[Callable] = None,
     ) -> Tuple[Optional[str], Optional[Dict], Optional[str]]:
-        if not api_key:
-            return None, None, "Provide a Gemini API key in the sidebar."
+        if not self.client:
+            return None, None, "AI backend is not configured on the server."
 
         transcript = list(history) + [{"role": "user", "content": user_msg}]
         transcript_text = format_transcript(transcript)
@@ -165,7 +164,6 @@ class PromptBuilderAgents:
         try:
             final_state = {
                 "mode": "chat",
-                "api_key": api_key,
                 "transcript_text": transcript_text,
             }
             for event in self.graph.stream(final_state):
@@ -191,25 +189,23 @@ class PromptBuilderAgents:
             }
             return final_state.get("interviewer_text", ""), agent_trace, None
         except Exception as exc:
-            return None, None, f"Gemini error: {exc}"
+            return None, None, f"Groq error: {exc}"
 
     def generate_srs(
         self,
         chat: List[Dict[str, str]],
-        api_key: str,
     ) -> Tuple[Optional[str], Optional[str]]:
-        if not api_key:
-            return None, "Provide a Gemini API key in the sidebar."
+        if not self.client:
+            return None, "AI backend is not configured on the server."
 
         try:
             transcript_text = format_transcript(chat)
             result = self.graph.invoke(
                 {
                     "mode": "srs",
-                    "api_key": api_key,
                     "transcript_text": transcript_text,
                 }
             )
             return result.get("srs_text", ""), None
         except Exception as exc:
-            return None, f"Gemini error: {exc}"
+            return None, f"Groq error: {exc}"

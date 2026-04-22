@@ -29,14 +29,8 @@ st.markdown("""
 # Sidebar
 with st.sidebar:
     st.title("⚙️ Configuration")
-    
-    # Use session_state for API key (no hardcoded keys)
-    if 'api_key' not in st.session_state:
-        st.session_state['api_key'] = ""
-    
-    api_key = st.text_input("Google Gemini API Key", value=st.session_state['api_key'], type="password")
-    if api_key:
-        st.session_state['api_key'] = api_key
+
+    st.caption("Using server-side Hugging Face Mistral configuration.")
     
     st.divider()
     
@@ -63,7 +57,7 @@ with st.sidebar:
 
 # Main Content
 st.title("🏷️ Classification Hub")
-st.markdown("Categorize your text datasets using **Google Gemini**.")
+st.markdown("Categorize your text datasets using **Mistral (Hugging Face)**.")
 
 if uploaded_file and upload_option == "Upload CSV":
     st.session_state.data = load_data(uploaded_file)
@@ -97,15 +91,13 @@ if 'data_loaded' in st.session_state and st.session_state.data_loaded:
     )
     
     if st.button("Start Classification", key="start_btn"):
-        if not api_key:
-            st.error("Please enter your Google Gemini API Key in the sidebar.")
-        elif not prompt:
+        if not prompt:
             st.error("Please enter classification instructions.")
         else:
             with st.spinner("Classifying texts..."):
                 progress_bar = st.progress(0)
                 # Pass prompt to text
-                categories = classify_batch(df, text_column, api_key, prompt, progress_bar)
+                categories = classify_batch(df, text_column, prompt, progress_bar)
                 
                 df['Predicted_Category'] = categories
                 st.session_state.results = df

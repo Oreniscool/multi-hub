@@ -1,5 +1,6 @@
 import streamlit as st
-import google.generativeai as genai
+import os
+import requests
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
@@ -44,10 +45,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Set Default API Key via session state (like MarketingHub pattern)
-if 'api_key' not in st.session_state:
-    st.session_state['api_key'] = ""
-
 # Demo Data
 DEMO_EMAILS = [
     "Subject: Client Contract Deadline\n\nHi Team,\nWe need the signed contract for the Apex account finalized by 5 PM today. Please prioritize the redlines from legal and confirm once the client has countersigned.\n\nThanks,\nAlex",
@@ -78,22 +75,52 @@ DEMO_URGENCY = [
 
 # --- Helper Functions ---
 
-def get_gemini_embeddings(text_list, api_key):
-    """Generates embeddings using Gemini API."""
-    genai.configure(api_key=api_key)
+def _hf_config():
+    token = os.getenv("HF_API_TOKEN", "").strip() or os.getenv("HUGGINGFACEHUB_API_TOKEN", "").strip()
+    api_url = os.getenv(
+        "HF_EMBEDDING_API_URL",
+        "https://router.huggingface.co/hf-inference/pipeline/feature-extraction/sentence-transformers/all-MiniLM-L6-v2",
+    ).strip()
+    return token, api_url
+
+
+def _mean_pool_embedding(model_output):
+    if not model_output:
+        return None
+    arr = np.array(model_output)
+    if arr.ndim == 1:
+        return arr
+    return arr.mean(axis=0)
+
+
+def get_hf_embeddings(text_list):
+    """Generates embeddings using Hugging Face feature-extraction API."""
+    token, api_url = _hf_config()
+    if not token:
+        st.error("HF_API_TOKEN is not configured in environment.")
+        return None
+
     embeddings = []
-    
+
     progress_bar = st.progress(0)
     for i, text in enumerate(text_list):
         try:
-            # Using embed_content for batch or single embedding
-            result = genai.embed_content(
-                model="models/text-embedding-004", # Or specific Gemini embedding model
-                content=text,
-                task_type="retrieval_document",
-                title=None
+            response = requests.post(
+                api_url,
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json={"inputs": text, "options": {"wait_for_model": True}},
+                timeout=120,
             )
-            embeddings.append(result['embedding'])
+            if response.status_code >= 400:
+                st.error(f"Embedding request failed ({response.status_code}): {response.text}")
+                return None
+
+            pooled = _mean_pool_embedding(response.json())
+            if pooled is None:
+                st.error(f"Empty embedding response for chunk {i}.")
+                return None
+
+            embeddings.append(pooled)
             progress_bar.progress((i + 1) / len(text_list))
         except Exception as e:
             st.error(f"Error generating embedding for chunk {i}: {e}")
@@ -146,16 +173,11 @@ with st.sidebar:
     demo_mode = st.toggle("Enable Demo Mode", value=False)
     
     if not demo_mode:
-        st.subheader("🔑 API Setup")
-        api_key = st.text_input(
-            "Google API Key", 
-            value=st.session_state['api_key'], 
-            type="password",
-            help="Your Gemini API Key"
-        )
-        # Update session state when user provides key
-        if api_key:
-            st.session_state['api_key'] = api_key
+        st.subheader("🤖 Model Setup")
+        if os.getenv("HF_API_TOKEN", "").strip() or os.getenv("HUGGINGFACEHUB_API_TOKEN", "").strip():
+            st.caption("Using server-side Hugging Face token for embeddings.")
+        else:
+            st.error("HF_API_TOKEN is missing in environment.")
         
         st.subheader("📄 Data Ingestion")
         uploaded_file = st.file_uploader("Upload PDF", type=['pdf'])
@@ -191,7 +213,7 @@ if demo_mode:
             time.sleep(0.5) # Fake loading for effect
             st.success(f"Loaded {len(DEMO_EMAILS)} synthetic documents.")
 
-elif uploaded_file and api_key:
+elif uploaded_file:
     # Process PDF logic
     # Check if we need to re-process (new file or settings change could be handled better, 
     # but for simple app, we'll re-run if "Process" button is clicked or just reactively)
@@ -200,7 +222,7 @@ elif uploaded_file and api_key:
     if st.button("Process Document", use_container_width=True):
         with st.spinner("Processing PDF and generating embeddings..."):
             chunks = process_pdf(uploaded_file, chunk_size, chunk_overlap)
-            embeddings = get_gemini_embeddings(chunks, api_key)
+            embeddings = get_hf_embeddings(chunks)
             
             if embeddings is not None:
                 st.session_state.documents = chunks
@@ -241,16 +263,14 @@ with tab1:
              if st.button("Search", key="real_search"):
                 with st.spinner("Searching..."):
                     try:
-                        genai.configure(api_key=api_key)
-                        query_embedding = genai.embed_content(
-                            model="models/text-embedding-004",
-                            content=query,
-                            task_type="retrieval_query"
-                        )['embedding']
+                        query_embedding_arr = get_hf_embeddings([query])
+                        if query_embedding_arr is None:
+                            raise RuntimeError("Failed to generate query embedding.")
+                        query_embedding = query_embedding_arr[0]
                         
                         # Calculate Cosine Similarity
                         # dot product of normalized vectors
-                        # Assuming Gemini embeddings are normalized? Usually yes, but let's compute dot product
+                        # We use a dot product similarity on embeddings returned by HF feature extraction.
                         doc_embeddings = st.session_state.embeddings
                         scores = np.dot(doc_embeddings, query_embedding)
                         
@@ -419,7 +439,7 @@ with tab2:
 st.markdown("---")
 st.markdown(
     "<div style='text-align: center; color: #666;'>"
-    "Vector Hub | Powered by Gemini 2.0 Flash & Streamlit"
+    "Vector Hub | Powered by Hugging Face embeddings & Streamlit"
     "</div>", 
     unsafe_allow_html=True
 )

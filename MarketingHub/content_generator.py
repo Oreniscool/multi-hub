@@ -1,22 +1,39 @@
 import streamlit as st
-import google.generativeai as genai
+import os
+import requests
+
+
+def _generate_with_mistral(prompt: str) -> str:
+    token = os.getenv("HF_API_TOKEN", "").strip() or os.getenv("HUGGINGFACEHUB_API_TOKEN", "").strip()
+    model_id = os.getenv("HF_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.3").strip()
+    api_url = os.getenv("HF_API_URL", f"https://router.huggingface.co/hf-inference/models/{model_id}").strip()
+
+    if not token:
+        raise ValueError("HF_API_TOKEN is not configured in environment.")
+
+    response = requests.post(
+        api_url,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={
+            "inputs": prompt,
+            "parameters": {"max_new_tokens": 900, "temperature": 0.4, "return_full_text": False},
+            "options": {"wait_for_model": True},
+        },
+        timeout=180,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"HF inference failed ({response.status_code}): {response.text}")
+
+    data = response.json()
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        text = (data[0].get("generated_text") or "").strip()
+        if text:
+            return text
+    raise RuntimeError("HF response did not include generated_text.")
 
 def app():
     st.title("✨ AI Content Generator")
-    st.markdown("Generate high-quality marketing content in seconds using Google Gemini.")
-
-    # Check for API Key
-    if 'api_key' not in st.session_state or not st.session_state['api_key']:
-        st.error("⚠️ Please enter your Google API Key in the sidebar to proceed.")
-        return
-
-    # Configure Gemini
-    try:
-        genai.configure(api_key=st.session_state['api_key'])
-        model = genai.GenerativeModel('models/gemma-3-27b-it')
-    except Exception as e:
-        st.error(f"Error configuring Gemini API: {e}")
-        return
+    st.markdown("Generate high-quality marketing content in seconds using Mistral via Hugging Face.")
 
     # Input Form
     with st.form("content_form"):
@@ -45,7 +62,7 @@ def app():
             st.warning("Please provide a topic or context.")
             return
             
-        with st.spinner("Gemini is crafting your content..."):
+        with st.spinner("Mistral is crafting your content..."):
             try:
                 # Construct Prompt
                 prompt = f"""
@@ -58,19 +75,18 @@ def app():
                 
                 Format the output professionally using Markdown.
                 """
-                
-                response = model.generate_content(prompt)
+                generated_text = _generate_with_mistral(prompt)
                 
                 # Display Result
                 st.success("Content Generated Successfully!")
                 st.markdown("### Result")
                 st.markdown("---")
-                st.markdown(response.text)
+                st.markdown(generated_text)
                 
                 # Copy Helper (Streamlit doesn't have native copy-to-clipboard button easily without components, 
                 # but code blocks have a copy button).
                 st.markdown("### Copy Code")
-                st.code(response.text, language="markdown")
+                st.code(generated_text, language="markdown")
                 
             except Exception as e:
                 st.error(f"An error occurred during generation: {e}")

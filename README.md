@@ -41,6 +41,7 @@ The Prompt Builder now runs inside this Streamlit app using a modular architectu
 - `prompts.py` for the prompt library
 
 To enable login + Google Sheets saves, configure OAuth environment variables (`GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `OAUTH_REDIRECT_URI`).
+For Prompt Builder AI responses, configure a server-side Groq key with `GROQ_API_KEY` (optional model override: `PROMPT_MODEL`).
 
 ## Deploy to Streamlit Community Cloud
 

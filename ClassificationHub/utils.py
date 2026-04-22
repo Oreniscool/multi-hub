@@ -1,7 +1,7 @@
 import pandas as pd
-import google.generativeai as genai
+import os
+import requests
 import time
-from io import StringIO
 
 def load_data(file_or_demo):
     """
@@ -39,23 +39,54 @@ def load_data(file_or_demo):
         except Exception as e:
             return None
 
-def classify_text(text, api_key, prompt_template):
+def _hf_config():
+    token = os.getenv("HF_API_TOKEN", "").strip() or os.getenv("HUGGINGFACEHUB_API_TOKEN", "").strip()
+    model_id = os.getenv("HF_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.3").strip()
+    api_url = os.getenv("HF_API_URL", f"https://router.huggingface.co/hf-inference/models/{model_id}").strip()
+    return token, api_url
+
+
+def _generate_with_mistral(prompt: str) -> str:
+    token, api_url = _hf_config()
+    if not token:
+        raise ValueError("HF_API_TOKEN is not configured in environment.")
+
+    response = requests.post(
+        api_url,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={
+            "inputs": prompt,
+            "parameters": {"max_new_tokens": 100, "temperature": 0.1, "return_full_text": False},
+            "options": {"wait_for_model": True},
+        },
+        timeout=120,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"HF inference failed ({response.status_code}): {response.text}")
+
+    data = response.json()
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        text = (data[0].get("generated_text") or "").strip()
+        if text:
+            return text
+    raise RuntimeError("HF response did not include generated_text.")
+
+
+def classify_text(text, prompt_template):
     """
-    Classifies a single text string using Google Gemini.
+    Classifies a single text string using Mistral via Hugging Face.
     """
-    if not api_key:
-        return "Error: No API Key"
-    
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('models/gemma-3-27b-it')
-        # Use the custom prompt template
-        response = model.generate_content(f"{prompt_template}\n\nText: {text}")
-        return response.text.strip()
+        prompt = (
+            f"{prompt_template}\n\n"
+            f"Text: {text}\n\n"
+            "Return only the final category label as plain text."
+        )
+        return _generate_with_mistral(prompt).splitlines()[0].strip()
     except Exception as e:
         return f"Error: {str(e)}"
 
-def classify_batch(df, column, api_key, prompt_template, progress_bar=None):
+def classify_batch(df, column, prompt_template, progress_bar=None):
     """
     Classifies a batch of texts from a DataFrame.
     """
@@ -63,7 +94,7 @@ def classify_batch(df, column, api_key, prompt_template, progress_bar=None):
     total = len(df)
     
     for i, text in enumerate(df[column]):
-        category = classify_text(text, api_key, prompt_template)
+        category = classify_text(text, prompt_template)
         results.append(category)
         
         if progress_bar:

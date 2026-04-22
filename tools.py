@@ -16,9 +16,6 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
 
-OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
-OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "")
-OAUTH_REDIRECT_URI = os.getenv("OAUTH_REDIRECT_URI", "http://localhost:8501")
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
@@ -67,7 +64,6 @@ EXAMPLE_PROJECTS: Dict[str, Dict[str, str]] = {
 
 
 def init_session_state() -> None:
-    st.session_state.setdefault("api_key", "")
     st.session_state.setdefault("hub_paths", [])
     st.session_state.setdefault("pb_chat", [])
     st.session_state.setdefault("pb_final_srs", "")
@@ -223,7 +219,11 @@ def append_prompt_row(creds, sheet_id: str, row: list) -> Tuple[bool, Optional[s
 
 
 def init_oauth_flow() -> Tuple[Optional[Flow], Optional[str]]:
-    if not OAUTH_CLIENT_ID or not OAUTH_CLIENT_SECRET:
+    oauth_client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+    oauth_client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+    oauth_redirect_uri = os.getenv("OAUTH_REDIRECT_URI", "http://localhost:8501").strip()
+
+    if not oauth_client_id or not oauth_client_secret:
         return (
             None,
             "OAuth credentials not configured. Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET environment variables.",
@@ -232,17 +232,17 @@ def init_oauth_flow() -> Tuple[Optional[Flow], Optional[str]]:
     try:
         client_config = {
             "web": {
-                "client_id": OAUTH_CLIENT_ID,
-                "client_secret": OAUTH_CLIENT_SECRET,
+                "client_id": oauth_client_id,
+                "client_secret": oauth_client_secret,
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [OAUTH_REDIRECT_URI],
+                "redirect_uris": [oauth_redirect_uri],
             }
         }
         flow = Flow.from_client_config(
             client_config,
             scopes=SCOPES,
-            redirect_uri=OAUTH_REDIRECT_URI,
+            redirect_uri=oauth_redirect_uri,
             autogenerate_code_verifier=True,
         )
         return flow, None

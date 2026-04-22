@@ -4,6 +4,8 @@ from datetime import datetime
 import streamlit as st
 from dotenv import load_dotenv
 
+load_dotenv()
+
 from agents import PromptBuilderAgents
 from tools import (
     EXAMPLE_PROJECTS,
@@ -19,15 +21,13 @@ from tools import (
     save_credentials_to_cache,
 )
 
-load_dotenv()
-
 st.set_page_config(
     page_title="Prompt Builder - Build Apps from Conversation",
     page_icon="🎨",
     layout="wide",
 )
 
-PROMPT_MODEL = os.getenv("PROMPT_MODEL", "gemini-2.5-flash-lite")
+PROMPT_MODEL = os.getenv("PROMPT_MODEL", "llama-3.3-70b-versatile")
 MAX_EXCHANGES = 10
 
 init_session_state()
@@ -36,18 +36,6 @@ bootstrap_cached_login()
 agents = PromptBuilderAgents(model_name=PROMPT_MODEL)
 
 with st.sidebar:
-    st.header("🔑 Settings")
-    api_key = st.text_input(
-        "Gemini API Key",
-        type="password",
-        value=st.session_state.get("api_key", ""),
-        help="Enter your API key once here. It will be shared with all hubs.",
-    )
-    if api_key:
-        st.session_state["api_key"] = api_key
-
-    st.markdown("---")
-
     st.subheader("🔐 Google Account")
     if st.session_state.user_email:
         st.success(f"✅ **{st.session_state.user_name}**")
@@ -210,8 +198,8 @@ st.markdown(
     <div class="hero-banner">
         <div class="hero-step">
             <div class="hero-step-num">🔑</div>
-            <div style="font-weight: 600; margin-bottom: 0.2rem;">Add Key</div>
-            <div class="hero-step-label">Add Gemini API Key</div>
+            <div style="font-weight: 600; margin-bottom: 0.2rem;">Start</div>
+            <div class="hero-step-label">Open the builder</div>
         </div>
         <div class="hero-step-arrow">➔</div>
         <div class="hero-step">
@@ -338,7 +326,6 @@ if user_chat:
             reply, agent_trace, err = agents.chat_reply(
                 user_chat,
                 st.session_state.pb_chat[:-1],
-                st.session_state.get("api_key", ""),
                 status_callback=update_status
             )
             if not err:
@@ -378,7 +365,6 @@ with col_gen:
         with st.spinner("Generating your SRS..."):
             srs_text, err = agents.generate_srs(
                 st.session_state.pb_chat,
-                st.session_state.get("api_key", ""),
             )
         if err:
             st.error(err)

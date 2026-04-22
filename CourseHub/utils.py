@@ -1,15 +1,66 @@
-
-import google.generativeai as genai
 import json
+import os
+import requests
 import typing
-import traceback
+import re
 
-def generate_course_content(api_key: str, subject: str, topics: str, duration: int) -> typing.Tuple[typing.Optional[dict], typing.Optional[str]]:
+def _hf_config() -> typing.Tuple[str, str]:
+    token = os.getenv("HF_API_TOKEN", "").strip() or os.getenv("HUGGINGFACEHUB_API_TOKEN", "").strip()
+    model_id = os.getenv("HF_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.3").strip()
+    api_url = os.getenv("HF_API_URL", f"https://router.huggingface.co/hf-inference/models/{model_id}").strip()
+    return token, api_url
+
+
+def _extract_json_array(text: str):
+    cleaned = text.strip()
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[7:]
+    if cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    cleaned = cleaned.strip()
+
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        match = re.search(r"\[.*\]", cleaned, flags=re.DOTALL)
+        if not match:
+            raise
+        return json.loads(match.group(0))
+
+
+def _generate_with_mistral(prompt: str) -> str:
+    token, api_url = _hf_config()
+    if not token:
+        raise ValueError("HF_API_TOKEN is not configured in environment.")
+
+    response = requests.post(
+        api_url,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={
+            "inputs": prompt,
+            "parameters": {"max_new_tokens": 1800, "temperature": 0.3, "return_full_text": False},
+            "options": {"wait_for_model": True},
+        },
+        timeout=240,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"HF inference failed ({response.status_code}): {response.text}")
+
+    data = response.json()
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        text = (data[0].get("generated_text") or "").strip()
+        if text:
+            return text
+    raise RuntimeError("HF response did not include generated_text.")
+
+
+def generate_course_content(subject: str, topics: str, duration: int) -> typing.Tuple[typing.Optional[dict], typing.Optional[str]]:
     """
-    Generates a structured course using Google Gemini API.
+    Generates a structured course using Hugging Face Mistral.
     
     Args:
-        api_key: The Google Gemini API key.
         subject: The subject of the course.
         topics: The specific topics to cover.
         duration: The duration of the course in days.
@@ -20,36 +71,6 @@ def generate_course_content(api_key: str, subject: str, topics: str, duration: i
         error_message is a string describing the error or None if success.
     """
     try:
-        genai.configure(api_key=api_key)
-        
-        # Try Gemma models which have separate quotas from Gemini
-        models_to_try = [
-            'models/gemma-3-27b-it',
-            'models/gemma-3-12b-it',
-            'models/gemma-3-4b-it'
-        ]
-        
-        last_exception = None
-        model = None
-        
-        for model_name in models_to_try:
-            try:
-                print(f"Trying model: {model_name}")
-                model = genai.GenerativeModel(model_name)
-                # Test connectivity with a dummy prompt (optional, but good to fail fast?) 
-                # Actually, just run the real prompt. If it fails due to model not found, catch it.
-                break 
-                # Note: creating GenerativeModel object doesn't validate it. 
-                # Validation happens at generate_content.
-            except Exception as e:
-                print(f"Model {model_name} failed setup: {e}")
-                last_exception = e
-                continue
-        
-        if not model:
-             # Just use the first one if all failed setup (unlikely) or last used
-             model = genai.GenerativeModel('models/gemma-3-27b-it')
-
         prompt = f"""
         Act as an expert educational content creator. Create a strictly structured {duration}-day course on the subject "{subject}".
         
@@ -80,37 +101,9 @@ def generate_course_content(api_key: str, subject: str, topics: str, duration: i
             }}
         ]
         """
-        
-        # We need to loop again for generation because that's where the 404/400 happens
-        for model_name in models_to_try:
-            try:
-                print(f"Generating content with model: {model_name}")
-                model = genai.GenerativeModel(model_name)
-                response = model.generate_content(prompt)
-                
-                # Check if response has text (caught by safety filters?)
-                if not response.text:
-                     raise ValueError("Empty response (possibly blocked by safety settings)")
-
-                # Clean up response text if it contains markdown code blocks
-                text = response.text.strip()
-                if text.startswith("```json"):
-                    text = text[7:]
-                if text.startswith("```"):
-                    text = text[3:]
-                if text.endswith("```"):
-                    text = text[:-3]
-                    
-                course_data = json.loads(text)
-                return course_data, None
-            except Exception as e:
-                print(f"Model {model_name} failed generation: {e}")
-                last_exception = e
-                continue
-        
-        # If we reach here, all models failed
-        return None, f"All models failed. Last error: {str(last_exception)}"
+        text = _generate_with_mistral(prompt)
+        course_data = _extract_json_array(text)
+        return course_data, None
 
     except Exception as e:
-        print(f"Error generating course: {traceback.format_exc()}")
         return None, str(e)

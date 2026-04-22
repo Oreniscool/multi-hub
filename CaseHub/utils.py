@@ -1,16 +1,47 @@
-import google.generativeai as genai
+import os
+import requests
 from fpdf import FPDF
 from docx import Document
 import io
 
-def generate_case_study(api_key, industry, topic, difficulty, company_size):
+def _hf_config():
+    token = os.getenv("HF_API_TOKEN", "").strip() or os.getenv("HUGGINGFACEHUB_API_TOKEN", "").strip()
+    model_id = os.getenv("HF_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.3").strip()
+    api_url = os.getenv("HF_API_URL", f"https://router.huggingface.co/hf-inference/models/{model_id}").strip()
+    return token, api_url
+
+
+def _generate_with_mistral(prompt: str) -> str:
+    token, api_url = _hf_config()
+    if not token:
+        raise ValueError("HF_API_TOKEN is not configured in environment.")
+
+    response = requests.post(
+        api_url,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={
+            "inputs": prompt,
+            "parameters": {"max_new_tokens": 1100, "temperature": 0.4, "return_full_text": False},
+            "options": {"wait_for_model": True},
+        },
+        timeout=180,
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(f"HF inference failed ({response.status_code}): {response.text}")
+
+    data = response.json()
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        text = (data[0].get("generated_text") or "").strip()
+        if text:
+            return text
+    raise RuntimeError("HF response did not include generated_text.")
+
+
+def generate_case_study(industry, topic, difficulty, company_size):
     """
-    Generates a structured case study using Google Gemini.
+    Generates a structured case study using Hugging Face Mistral.
     """
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('models/gemma-3-27b-it')
-
         prompt = f"""
         You are an expert case study writer for academic and professional training purposes.
         Create a detailed, realistic business case study based on the following parameters:
@@ -41,9 +72,8 @@ def generate_case_study(api_key, industry, topic, difficulty, company_size):
         
         Make the content engaging, professional, and suitable for the specified difficulty level.
         """
-        
-        response = model.generate_content(prompt)
-        return response.text
+
+        return _generate_with_mistral(prompt)
     except Exception as e:
         return f"Error creating case study: {str(e)}"
 

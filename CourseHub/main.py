@@ -18,15 +18,8 @@ if 'generated_course' not in st.session_state: # Flag to track generation
 # Sidebar Configuration
 with st.sidebar:
     st.header("Configuration")
-    
-    # Set Default API Key via session state (like MarketingHub pattern)
-    if 'api_key' not in st.session_state:
-        st.session_state['api_key'] = ""
-    
-    api_key = st.text_input("Gemini API Key", value=st.session_state['api_key'], type="password")
-    # Update session state when user provides key
-    if api_key:
-        st.session_state['api_key'] = api_key
+
+    st.caption("Using server-side Hugging Face Mistral configuration.")
     
     st.divider()
     
@@ -41,13 +34,11 @@ with st.sidebar:
 st.title("🎓 AI Course Generator")
 
 if generate_btn:
-    if not api_key:
-        st.error("Please enter a valid Google Gemini API Key.")
-    elif not subject or not topics:
+    if not subject or not topics:
         st.error("Please provide both a Subject and Topics to cover.")
     else:
         with st.spinner(f"Generating your {duration}-day course on '{subject}'..."):
-            course_data, error_message = utils.generate_course_content(api_key, subject, topics, duration)
+            course_data, error_message = utils.generate_course_content(subject, topics, duration)
             
             if course_data:
                 st.session_state.course_data = course_data
@@ -56,7 +47,7 @@ if generate_btn:
                 st.balloons()
             else:
                 st.error(f"Failed to generate course. Error: {error_message}")
-                st.info("Check your API key and try again.")
+                st.info("Check your Hugging Face token configuration and try again.")
 
 # Display Course Content
 if st.session_state.generated_course and st.session_state.course_data:

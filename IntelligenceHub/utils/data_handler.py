@@ -2,14 +2,16 @@ import pandas as pd
 import numpy as np
 import requests
 import random
+import os
 from datetime import datetime, timedelta
 
-def fetch_stock_data(ticker, api_key):
+def fetch_stock_data(ticker, api_key=None):
     """
     Fetches daily time series data for a given ticker using Alpha Vantage API.
     """
+    api_key = (api_key or "").strip() or os.getenv("ALPHA_VANTAGE_API_KEY", "").strip()
     if not api_key:
-        return None, "API Key is missing."
+        return None, "ALPHA_VANTAGE_API_KEY is missing."
     
     url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={ticker}&apikey={api_key}&datatype=json"
     

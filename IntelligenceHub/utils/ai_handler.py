@@ -1,27 +1,49 @@
-import google.generativeai as genai
 import json
 import os
-import streamlit as st
+import requests
+
+
+def _extract_json(text: str):
+    cleaned = text.replace("```json", "").replace("```", "").strip()
+    return json.loads(cleaned)
 
 class AIHandler:
     def __init__(self):
-        # Get API key from session_state (like MarketingHub pattern)
-        api_key = st.session_state.get('api_key', '')
-        if not api_key:
-            print("Warning: No API key found in session_state")
-            self.model = None
-            return
-            
-        try:
-            genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('models/gemma-3-27b-it')
-        except Exception as e:
-            print(f"Error configuring Gemini: {e}")
-            self.model = None
+        self.token = os.getenv("HF_API_TOKEN", "").strip() or os.getenv("HUGGINGFACEHUB_API_TOKEN", "").strip()
+        model_id = os.getenv("HF_MODEL_ID", "mistralai/Mistral-7B-Instruct-v0.3").strip()
+        self.api_url = os.getenv("HF_API_URL", f"https://router.huggingface.co/hf-inference/models/{model_id}").strip()
+
+    def _generate(self, prompt: str, max_new_tokens: int = 900, temperature: float = 0.2) -> str:
+        if not self.token:
+            raise ValueError("HF_API_TOKEN is not configured in environment.")
+
+        response = requests.post(
+            self.api_url,
+            headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
+            json={
+                "inputs": prompt,
+                "parameters": {
+                    "max_new_tokens": max_new_tokens,
+                    "temperature": temperature,
+                    "return_full_text": False,
+                },
+                "options": {"wait_for_model": True},
+            },
+            timeout=180,
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(f"HF inference failed ({response.status_code}): {response.text}")
+
+        data = response.json()
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            text = (data[0].get("generated_text") or "").strip()
+            if text:
+                return text
+        raise RuntimeError("HF response did not include generated_text.")
 
     def generate_swot(self, company_name):
-        if not self.model:
-             return {"strengths": "Error", "weaknesses": "Check API Key", "opportunities": "", "threats": ""}
+        if not self.token:
+             return {"strengths": "Error", "weaknesses": "Set HF_API_TOKEN in .env", "opportunities": "", "threats": ""}
         
         prompt = f"""
         Generate a SWOT analysis for '{company_name}'.
@@ -29,10 +51,8 @@ class AIHandler:
         Each value should be a string with bullet points (using - ).
         """
         try:
-            response = self.model.generate_content(prompt)
-            # clean response if it has markdown code blocks
-            text = response.text.replace('```json', '').replace('```', '').strip()
-            return json.loads(text)
+            text = self._generate(prompt, max_new_tokens=700, temperature=0.2)
+            return _extract_json(text)
         except Exception as e:
             return {
                 "strengths": f"Error generating: {str(e)}", 
@@ -44,7 +64,7 @@ class AIHandler:
         headlines: list of strings
         Returns: list of dicts {headline, category, sentiment}
         """
-        if not self.model or not headlines:
+        if not self.token or not headlines:
             return []
 
         prompt = f"""
@@ -59,15 +79,14 @@ class AIHandler:
         Return ONLY a raw JSON list of objects (no markdown) with keys: 'headline', 'category', 'sentiment'.
         """
         try:
-            response = self.model.generate_content(prompt)
-            text = response.text.replace('```json', '').replace('```', '').strip()
-            return json.loads(text)
+            text = self._generate(prompt, max_new_tokens=700, temperature=0.1)
+            return _extract_json(text)
         except Exception as e:
             # Fallback to just returning original with unknown
             return [{"headline": h, "category": "Unknown", "sentiment": "Neutral"} for h in headlines]
 
     def analyze_competition(self, data_summary):
-        if not self.model:
+        if not self.token:
             return "AI not configured."
             
         prompt = f"""
@@ -80,13 +99,12 @@ class AIHandler:
         Keep it concise and professional.
         """
         try:
-            response = self.model.generate_content(prompt)
-            return response.text
+            return self._generate(prompt, max_new_tokens=500, temperature=0.2)
         except Exception as e:
             return f"Error generating insights: {e}"
 
     def generate_competitive_data(self, industry):
-        if not self.model:
+        if not self.token:
             return None
         
         prompt = f"""
@@ -99,9 +117,8 @@ class AIHandler:
         - 'Revenue ($M)': number (integer, e.g. 5000)
         """
         try:
-            response = self.model.generate_content(prompt)
-            text = response.text.replace('```json', '').replace('```', '').strip()
-            return json.loads(text)
+            text = self._generate(prompt, max_new_tokens=800, temperature=0.2)
+            return _extract_json(text)
         except Exception as e:
             print(f"Error generating comp data: {e}")
             return None
