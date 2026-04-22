@@ -74,7 +74,152 @@ Conversation:
 """
 
 
+SRS_SHARED_CONSTRAINTS = """
+Global constraints to preserve:
+- Exactly 8 files total: app.py, agents.py, tools.py, prompts.py, models.py, databases.py, vector_embeddings.py, requirements.txt.
+- Groq is the only supported LLM provider/model family.
+- Database backend is Supabase only.
+- Vector storage/search is pgvector only.
+- Agents collaborate in a Planner -> Critic -> Interviewer loop for requirement collection.
+- app.py handles entrypoint/runtime wiring only; keep business logic in modules.
+""".strip()
+
+
+def srs_prompt_step_one(transcript_text: str) -> str:
+    return f"""
+You are generating Prompt 1 of 3 in a sequential prompt pack.
+
+Task:
+Create a user-pasteable prompt that asks another coding model to produce only the product definition and requirements baseline.
+
+Prompt 1 must ask for these sections only:
+1) Product Summary
+2) Primary Users & Roles
+3) Core Use Cases
+4) Functional Requirements
+5) Non-Functional Requirements
+
+Include these constraints in Prompt 1:
+{SRS_SHARED_CONSTRAINTS}
+
+Output rules:
+- Return ONLY Prompt 1 text (no commentary, no markdown fences).
+- Keep Prompt 1 concise and actionable.
+- Prompt 1 must tell the downstream model to avoid writing code.
+
+Conversation:
+{transcript_text}
+"""
+
+
+def srs_prompt_step_two(transcript_text: str, step_one_prompt_text: str) -> str:
+    return f"""
+You are generating Prompt 2 of 3 in a sequential prompt pack.
+
+Task:
+Create a user-pasteable follow-up prompt that should be run after Prompt 1 output exists.
+Prompt 2 should focus on architecture and implementation planning, using Prompt 1 context.
+
+Prompt 2 must ask for these sections only:
+6) Agent Architecture (roles, collaboration, loop flow)
+7) Tooling Architecture (helpers and integrations)
+8) API/UI Design (interaction contracts)
+9) Prompt Library Specification
+10) Project File Plan (exactly 8 files with responsibilities)
+
+Include these constraints in Prompt 2:
+{SRS_SHARED_CONSTRAINTS}
+
+Additional requirements for Prompt 2:
+- Explicitly require a Planner -> Critic -> Interviewer loop definition.
+- Require concise interface contracts between app.py, agents.py, and tools.py.
+
+Reference Prompt 1 draft:
+{step_one_prompt_text}
+
+Conversation:
+{transcript_text}
+
+Output rules:
+- Return ONLY Prompt 2 text (no commentary, no markdown fences).
+- Keep Prompt 2 concise and directly executable.
+"""
+
+
+def srs_prompt_step_three(
+    transcript_text: str,
+    step_one_prompt_text: str,
+    step_two_prompt_text: str,
+) -> str:
+    return f"""
+You are generating Prompt 3 of 3 in a sequential prompt pack.
+
+Task:
+Create a user-pasteable final prompt that should be run after Prompt 1 and Prompt 2 outputs are available.
+Prompt 3 should finalize quality and delivery criteria.
+
+Prompt 3 must ask for these sections only:
+11) Critical Q&A Collection Strategy
+12) Acceptance Criteria
+
+Prompt 3 must also require:
+- A final coherence pass that checks alignment with Prompt 1 and Prompt 2 outputs.
+- Clear completion gates for requirement completeness.
+- A short risk register with mitigations.
+
+Reference Prompt 1 draft:
+{step_one_prompt_text}
+
+Reference Prompt 2 draft:
+{step_two_prompt_text}
+
+Conversation:
+{transcript_text}
+
+Output rules:
+- Return ONLY Prompt 3 text (no commentary, no markdown fences).
+- Keep Prompt 3 concise and implementation-focused.
+"""
+
+
+def _sanitize_prompt_block(prompt_text: str) -> str:
+    return (prompt_text or "").strip().replace("```", "'''")
+
+
+def format_prompt_sequence(
+    step_one_text: str,
+    step_two_text: str,
+    step_three_text: str,
+) -> str:
+    step_one = _sanitize_prompt_block(step_one_text)
+    step_two = _sanitize_prompt_block(step_two_text)
+    step_three = _sanitize_prompt_block(step_three_text)
+
+    return f"""
+# Sequential Prompt Pack (Run in Order)
+
+Use these prompts one after another with your coding model.
+Do not skip order.
+
+## Prompt 1 - Product & Requirements Baseline
+```
+{step_one}
+```
+
+## Prompt 2 - Architecture & File Plan
+```
+{step_two}
+```
+
+## Prompt 3 - Quality Gates & Acceptance
+```
+{step_three}
+```
+""".strip()
+
+
 def srs_generation_prompt(transcript_text: str) -> str:
+    """Backward-compatible single-step template entry point."""
     return f"""
 IMPORTANT - MANDATORY GENERATION REQUIREMENTS:
 Use the conversation to generate an implementation-ready SRS/build prompt that strictly enforces ALL constraints below:

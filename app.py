@@ -187,7 +187,7 @@ if st.session_state.current_view == "example" and st.session_state.selected_exam
     st.stop()
 
 st.markdown(
-        '<div class="main-subtitle">Define your app in one conversation, then generate a production-ready SRS.</div>',
+    '<div class="main-subtitle">Define your app in one conversation, then generate a production-ready prompt sequence.</div>',
     unsafe_allow_html=True,
 )
 st.caption("🧠 Agent Mode: Planner -> Critic -> Interviewer loop is active every turn.")
@@ -258,12 +258,12 @@ if latest_trace:
 
 if current_count >= MAX_EXCHANGES:
     st.markdown(
-        '<div class="hint-callout">✅ 10 exchanges complete - you are ready to generate your SRS below.</div>',
+        '<div class="hint-callout">✅ 10 exchanges complete - you are ready to generate your prompt sequence below.</div>',
         unsafe_allow_html=True,
     )
 elif current_count >= 7:
     st.markdown(
-        f'<div class="hint-callout">💡 {MAX_EXCHANGES - current_count} more exchange(s) until the SRS generator unlocks automatically.</div>',
+        f'<div class="hint-callout">💡 {MAX_EXCHANGES - current_count} more exchange(s) until prompt sequence generation unlocks automatically.</div>',
         unsafe_allow_html=True,
     )
 elif current_count == 0:
@@ -347,22 +347,22 @@ if user_chat:
         st.rerun()
 
 st.markdown('<hr class="styled-divider">', unsafe_allow_html=True)
-st.markdown('<div class="section-header">📄 Generate SRS</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">📄 Generate Prompt Sequence</div>', unsafe_allow_html=True)
 
 satisfied = st.checkbox(
-    "I've provided enough detail - generate the SRS now.",
+    "I've provided enough detail - generate the prompt sequence now.",
     value=current_count >= MAX_EXCHANGES,
 )
 
 col_gen, col_title = st.columns([2, 1])
 with col_gen:
     if st.button(
-        "⚡ Generate SRS",
+        "⚡ Generate Prompt Sequence",
         type="primary",
         disabled=not satisfied,
-        help="Generates a 5-file architecture SRS from your conversation",
+        help="Generates a 3-step prompt sequence from your conversation",
     ):
-        with st.spinner("Generating your SRS..."):
+        with st.spinner("Generating your prompt sequence..."):
             srs_text, err = agents.generate_srs(
                 st.session_state.pb_chat,
             )
@@ -370,7 +370,7 @@ with col_gen:
             st.error(err)
         else:
             st.session_state.pb_final_srs = srs_text or ""
-            st.success("✅ SRS generated - review and copy it below.")
+            st.success("✅ Prompt sequence generated - run Prompt 1, then Prompt 2, then Prompt 3.")
             st.rerun()
 with col_title:
     st.session_state.pb_title = st.text_input(
@@ -381,7 +381,7 @@ with col_title:
 
 if st.session_state.get("pb_final_srs"):
     st.markdown('<hr class="styled-divider">', unsafe_allow_html=True)
-    st.markdown('<div class="section-header">📋 SRS Prompt</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📋 Prompt Sequence (Run in Order)</div>', unsafe_allow_html=True)
 
     view_mode = st.radio(
         "View mode:",

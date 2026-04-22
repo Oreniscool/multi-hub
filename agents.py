@@ -10,10 +10,13 @@ from langgraph.graph import END, START, StateGraph
 
 from prompts import (
     critic_prompt,
+    format_prompt_sequence,
     format_transcript,
     interviewer_prompt,
     planner_prompt,
-    srs_generation_prompt,
+    srs_prompt_step_one,
+    srs_prompt_step_three,
+    srs_prompt_step_two,
 )
 
 
@@ -114,10 +117,26 @@ class PromptBuilderAgents:
         return {"interviewer_text": interviewer_text}
 
     def _srs_node(self, state: AgentState) -> AgentState:
-        srs_text = self._generate(
-            srs_generation_prompt(state["transcript_text"]),
+        step_one_text = self._generate(
+            srs_prompt_step_one(state["transcript_text"]),
         )
-        return {"srs_text": srs_text}
+        step_two_text = self._generate(
+            srs_prompt_step_two(state["transcript_text"], step_one_text),
+        )
+        step_three_text = self._generate(
+            srs_prompt_step_three(
+                state["transcript_text"],
+                step_one_text,
+                step_two_text,
+            ),
+        )
+        return {
+            "srs_text": format_prompt_sequence(
+                step_one_text,
+                step_two_text,
+                step_three_text,
+            )
+        }
 
     def _route(self, state: AgentState) -> str:
         return state.get("next_node", END)
